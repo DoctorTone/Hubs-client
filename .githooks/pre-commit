@@ -36,10 +36,17 @@ EOF
 fi
 
 # lints changed JavaScript and TypeScript
-changed_js=$(git diff-index --cached --name-only $against | grep -E "(.*\.(js|mjs|ts|mts)|scripts/.*\.(js|mjs|ts|mts)|src/.*\.(js|mjs|ts|mts)|test/.*\.(js|mjs|ts|mts)|admin/.*\.(js|mjs|ts|mts)|admin/src/.*\.(js|mjs|ts|mts))$")
-# /dev/null prevents eslint from checking everything
-./node_modules/.bin/eslint ${changed_js:-/dev/null}
+changed_js=$(git diff-index --cached --name-only "$against" | grep -E "(.*\.(js|mjs|ts|mts)|scripts/.*\.(js|mjs|ts|mts)|src/.*\.(js|mjs|ts|mts)|test/.*\.(js|mjs|ts|mts)|admin/.*\.(js|mjs|ts|mts)|admin/src/.*\.(js|mjs|ts|mts))$" || true)
+
+# If there are no matching files, skip eslint (Windows-safe)
+if [ -z "$changed_js" ]; then
+  exit 0
+fi
+
+# Run eslint on the changed files
+echo "$changed_js" | xargs ./node_modules/.bin/eslint
 LINT_STATUS=$?
+
 if [ "$LINT_STATUS" != "0" ]; then
   echo 'Fix the errors above, then use `git add` to restage all fixed files'
   exit $LINT_STATUS
