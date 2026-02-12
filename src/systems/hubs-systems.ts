@@ -94,6 +94,7 @@ import { inspectSystem } from "../bit-systems/inspect-system";
 import { snapMediaSystem } from "../bit-systems/snap-media-system";
 import { scaleWhenGrabbedSystem } from "../bit-systems/scale-when-grabbed-system";
 import { colourToggleSystem } from "./colourToggle";
+import { transformToggleSystem } from "./transformToggle";
 
 declare global {
   interface Window {
@@ -316,6 +317,7 @@ export function mainTick(xrFrame: XRFrame, renderer: WebGLRenderer, scene: Scene
   networkSendSystem(world);
 
   colourToggleSystem(world);
+  transformToggleSystem(world);
 
   if (enableNetworkDebug) {
     networkDebugSystem(world, scene);

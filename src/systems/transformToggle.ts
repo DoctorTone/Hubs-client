@@ -6,16 +6,16 @@ import { CursorRaycastable, RemoteHoverTarget, SingleActionButton, Interacted } 
 
 let myEid = -1;
 
-const colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
-let colorIndex = 0;
+const SPIN_DURATION = 2000;
+let spin: { startTime: number; startY: number } | null = null;
 
 const clickedQuery = enterQuery(defineQuery([SingleActionButton, Interacted]));
 
-export function colourToggleSystem(world: HubsWorld) {
+export function transformToggleSystem(world: HubsWorld) {
   if (myEid === -1) {
     myEid = addEntity(world);
-    const mesh = new Mesh(new BoxGeometry(1, 1, 1), new MeshStandardMaterial({ color: colors[0] }));
-    mesh.position.set(0, 1.5, 0);
+    const mesh = new Mesh(new BoxGeometry(1, 1, 1), new MeshStandardMaterial({ color: "grey" }));
+    mesh.position.set(-3, 1.5, 0);
     addObject3DComponent(world, myEid, mesh);
 
     addComponent(world, CursorRaycastable, myEid);
@@ -25,12 +25,27 @@ export function colourToggleSystem(world: HubsWorld) {
     world.scene.add(mesh);
   }
 
+  const now = world.time.elapsed;
+
   clickedQuery(world).forEach(eid => {
     if (eid !== myEid) return;
     const obj = world.eid2obj.get(eid);
     if (obj instanceof Mesh) {
-      colorIndex = (colorIndex + 1) % colors.length;
-      (obj.material as MeshStandardMaterial).color.set(colors[colorIndex]);
+      spin = { startTime: now, startY: obj.rotation.y };
     }
   });
+
+  if (spin) {
+    const obj = world.eid2obj.get(myEid);
+    if (obj) {
+      const t = (now - spin.startTime) / SPIN_DURATION;
+      if (t >= 1) {
+        obj.rotation.y = spin.startY + Math.PI * 2;
+        spin = null;
+      } else {
+        obj.rotation.y = spin.startY + t * Math.PI * 2;
+      }
+      obj.updateMatrix();
+    }
+  }
 }
