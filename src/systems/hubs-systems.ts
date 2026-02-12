@@ -93,6 +93,7 @@ import { linkedPDFSystem } from "../bit-systems/linked-pdf-system";
 import { inspectSystem } from "../bit-systems/inspect-system";
 import { snapMediaSystem } from "../bit-systems/snap-media-system";
 import { scaleWhenGrabbedSystem } from "../bit-systems/scale-when-grabbed-system";
+import { colourToggleSystem } from "./colourToggle";
 
 declare global {
   interface Window {
@@ -313,6 +314,8 @@ export function mainTick(xrFrame: XRFrame, renderer: WebGLRenderer, scene: Scene
 
   entityPersistenceSystem(world, APP.hubChannel!);
   networkSendSystem(world);
+
+  colourToggleSystem(world);
 
   if (enableNetworkDebug) {
     networkDebugSystem(world, scene);
