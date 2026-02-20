@@ -95,6 +95,7 @@ import { snapMediaSystem } from "../bit-systems/snap-media-system";
 import { scaleWhenGrabbedSystem } from "../bit-systems/scale-when-grabbed-system";
 import { colourToggleSystem } from "./colourToggle";
 import { transformToggleSystem } from "./transformToggle";
+import { animationPlaySystem } from "./animationPlay";
 
 declare global {
   interface Window {
@@ -318,6 +319,7 @@ export function mainTick(xrFrame: XRFrame, renderer: WebGLRenderer, scene: Scene
 
   colourToggleSystem(world);
   transformToggleSystem(world);
+  animationPlaySystem(world);
 
   if (enableNetworkDebug) {
     networkDebugSystem(world, scene);

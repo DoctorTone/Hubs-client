@@ -5,7 +5,9 @@
       "Bash(node -r @babel/register -r ./scripts/babel-register.js -r esm -r ./scripts/shim scripts/login.js:*)",
       "Bash(node --version:*)",
       "Bash(npm --version:*)",
-      "Bash(node -r @babel/register -r ./scripts/babel-register.js -r ./scripts/shim scripts/login.js:*)"
+      "Bash(node -r @babel/register -r ./scripts/babel-register.js -r ./scripts/shim scripts/login.js:*)",
+      "Bash(git -C C:/Users/tony/Documents/Github/hubs-old log --oneline -5 --name-only)",
+      "Bash(git -C \"C:/Users/tony/Documents/Github/hubs-old\" show --name-only 439f4d7b0)"
     ]
   }
 }
