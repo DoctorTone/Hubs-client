@@ -1,34 +1,38 @@
 import { addComponent, defineQuery, enterQuery, exitQuery } from "bitecs";
-import { AnimationMixer, LoopOnce, Object3D } from "three";
+import { AnimationMixer, LoopOnce, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
 import {
-  AnimationOnClick,
-  CursorRaycastable,
-  Interacted,
   MixerAnimatableData,
-  NetworkedAnimationOnClick,
+  NetworkedProximityAnimation,
   Object3DTag,
-  RemoteHoverTarget,
-  SingleActionButton
+  ProximityAnimation
 } from "../bit-components";
 import { localClientID } from "../bit-systems/networking";
 
-const ANIMATION_NAME_TAG = "_interactive_animation";
-const NAF_DATA_TYPE = "animation-play";
+const DISTANCES = { near: 2, medium: 5, far: 10 }; // metres
+const PROXIMITY_TOKENS: Record<string, number> = {
+  _proximity_near: DISTANCES.near,
+  _proximity_medium: DISTANCES.medium,
+  _proximity_far: DISTANCES.far
+};
+const NAF_DATA_TYPE = "proximity-animation-play";
 
 const mixers = new Map<number, AnimationMixer>();
 const animRoots = new Map<number, Object3D>();
 const lastPlayCount = new Map<number, number>();
 const nameToEid = new Map<string, number>();
+const wasInRange = new Map<number, boolean>();
 
 let nafHandlerRegistered = false;
 
 const newObjectQuery = enterQuery(defineQuery([Object3DTag]));
-const animQuery = defineQuery([AnimationOnClick, SingleActionButton]);
+const animQuery = defineQuery([ProximityAnimation, NetworkedProximityAnimation]);
 const animEnterQuery = enterQuery(animQuery);
 const animExitQuery = exitQuery(animQuery);
-const clickedQuery = enterQuery(defineQuery([AnimationOnClick, NetworkedAnimationOnClick, SingleActionButton, Interacted]));
-const networkedAnimQuery = defineQuery([AnimationOnClick, NetworkedAnimationOnClick]);
+const networkedAnimQuery = defineQuery([ProximityAnimation, NetworkedProximityAnimation]);
+
+const listenerPos = new Vector3();
+const objPos = new Vector3();
 
 function ensureNafHandler() {
   if (nafHandlerRegistered) return;
@@ -36,15 +40,11 @@ function ensureNafHandler() {
   NAF.connection.subscribeToDataChannel(NAF_DATA_TYPE, (_senderId: string, _dataType: string, data: { name: string }) => {
     const eid = nameToEid.get(data.name);
     if (eid !== undefined) {
-      NetworkedAnimationOnClick.playing[eid]++;
+      NetworkedProximityAnimation.playing[eid]++;
     }
   });
 }
 
-// Walk up the hierarchy to find the nearest ancestor that has animation clips,
-// and continue walking to find the AFrame animation-mixer component if present.
-// Both live on different ancestors because gltf-model-plus sets animations on
-// gltf.scene while the AFrame animation-mixer sits one level higher on el.object3D.
 function findAnimationContext(obj: Object3D): { root: Object3D; aframeMixer: AnimationMixer | null } | null {
   let root: Object3D | null = null;
   let aframeMixer: AnimationMixer | null = null;
@@ -78,22 +78,24 @@ function playAnimations(eid: number) {
   }
 }
 
-export function animationPlaySystem(world: HubsWorld) {
-  // Register NAF receive handler as soon as NAF is connected
+export function proximityAnimationPlaySystem(world: HubsWorld) {
   if (typeof NAF !== "undefined" && localClientID) {
     ensureNafHandler();
   }
 
-  // Auto-tag any object whose name contains the marker string
+  // Tag any object whose name contains a proximity token
   newObjectQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
-    if (!obj?.name.includes(ANIMATION_NAME_TAG)) return;
-    addComponent(world, AnimationOnClick, eid);
-    addComponent(world, NetworkedAnimationOnClick, eid);
-    addComponent(world, CursorRaycastable, eid);
-    addComponent(world, RemoteHoverTarget, eid);
-    addComponent(world, SingleActionButton, eid);
-    nameToEid.set(obj.name, eid);
+    if (!obj) return;
+    for (const [token, distance] of Object.entries(PROXIMITY_TOKENS)) {
+      if (obj.name.includes(token)) {
+        addComponent(world, ProximityAnimation, eid);
+        addComponent(world, NetworkedProximityAnimation, eid);
+        ProximityAnimation.threshold[eid] = distance;
+        nameToEid.set(obj.name, eid);
+        break;
+      }
+    }
   });
 
   // Set up mixer and suppress auto-play for newly tagged entities
@@ -105,9 +107,9 @@ export function animationPlaySystem(world: HubsWorld) {
 
     animRoots.set(eid, ctx.root);
     mixers.set(eid, new AnimationMixer(ctx.root));
-    lastPlayCount.set(eid, NetworkedAnimationOnClick.playing[eid]);
+    lastPlayCount.set(eid, NetworkedProximityAnimation.playing[eid]);
+    wasInRange.set(eid, false);
 
-    // Stop auto-play from both the bitecs and AFrame animation systems
     if (ctx.root.eid !== undefined) MixerAnimatableData.get(ctx.root.eid)?.stopAllAction();
     ctx.aframeMixer?.stopAllAction();
   });
@@ -120,6 +122,7 @@ export function animationPlaySystem(world: HubsWorld) {
     mixers.delete(eid);
     animRoots.delete(eid);
     lastPlayCount.delete(eid);
+    wasInRange.delete(eid);
   });
 
   // Advance all active mixers
@@ -127,20 +130,30 @@ export function animationPlaySystem(world: HubsWorld) {
     mixers.get(eid)?.update(world.time.delta / 1000.0);
   });
 
-  // On click: increment counter locally and broadcast to other clients by name
-  clickedQuery(world).forEach(eid => {
-    NetworkedAnimationOnClick.playing[eid]++;
+  // Per-frame proximity check using squared distance to avoid sqrt
+  APP.audioListener.getWorldPosition(listenerPos);
+  networkedAnimQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
-    if (obj && typeof NAF !== "undefined" && localClientID) {
-      NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
+    if (!obj) return;
+
+    const thresholdSq = ProximityAnimation.threshold[eid] ** 2;
+    obj.getWorldPosition(objPos);
+    const distSq = listenerPos.distanceToSquared(objPos);
+    const inRange = distSq < thresholdSq;
+
+    if (inRange && !wasInRange.get(eid)) {
+      NetworkedProximityAnimation.playing[eid]++;
+      if (typeof NAF !== "undefined" && localClientID) {
+        NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
+      }
     }
+    wasInRange.set(eid, inRange);
   });
 
-  // Detect counter changes — triggered by local clicks and remote receives
+  // Detect counter changes — triggered by local proximity and remote receives
   networkedAnimQuery(world).forEach(eid => {
-    const current = NetworkedAnimationOnClick.playing[eid];
+    const current = NetworkedProximityAnimation.playing[eid];
     if (!lastPlayCount.has(eid)) {
-      // First encounter: seed without playing
       lastPlayCount.set(eid, current);
       return;
     }

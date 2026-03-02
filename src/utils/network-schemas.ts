@@ -2,6 +2,7 @@ import { Component } from "bitecs";
 import { HubsWorld } from "../app";
 import {
   $isStringType,
+  NetworkedAnimationOnClick,
   NetworkedFloatyObject,
   NetworkedMediaFrame,
   NetworkedPDF,
@@ -10,6 +11,7 @@ import {
   NetworkedWaypoint
 } from "../bit-components";
 import { defineNetworkSchema } from "./define-network-schema";
+import { NetworkedAnimationOnClickSchema } from "./networked-animation-on-click-schema";
 import { NetworkedMediaFrameSchema } from "./networked-media-frame-schema";
 import { NetworkedPDFSchema } from "./networked-pdf-schema";
 import { NetworkedTransformSchema } from "./networked-transform-schema";
@@ -37,6 +39,7 @@ export interface NetworkSchema {
 }
 
 export const schemas: Map<Component, NetworkSchema> = new Map();
+schemas.set(NetworkedAnimationOnClick, NetworkedAnimationOnClickSchema);
 schemas.set(NetworkedMediaFrame, NetworkedMediaFrameSchema);
 schemas.set(NetworkedTransform, NetworkedTransformSchema);
 schemas.set(NetworkedVideo, NetworkedVideoSchema);

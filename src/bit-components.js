@@ -456,3 +456,12 @@ export const ObjectMenuTransform = defineComponent({
   flags: Types.ui8
 });
 export const AnimationOnClick = defineComponent();
+export const NetworkedAnimationOnClick = defineComponent({
+  playing: Types.ui32
+});
+export const ProximityAnimation = defineComponent({
+  threshold: Types.f32
+});
+export const NetworkedProximityAnimation = defineComponent({
+  playing: Types.ui32
+});
