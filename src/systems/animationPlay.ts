@@ -18,6 +18,7 @@ const NAF_DATA_TYPE = "animation-play";
 
 const mixers = new Map<number, AnimationMixer>();
 const animRoots = new Map<number, Object3D>();
+const triggerUUIDs = new Map<number, Set<string>>();
 const lastPlayCount = new Map<number, number>();
 const nameToEid = new Map<string, number>();
 
@@ -66,10 +67,15 @@ function findAnimationContext(obj: Object3D): { root: Object3D; aframeMixer: Ani
 function playAnimations(eid: number) {
   const root = animRoots.get(eid);
   const mixer = mixers.get(eid);
-  if (!root || !mixer) return;
+  const uuids = triggerUUIDs.get(eid);
+  if (!root || !mixer || !uuids) return;
+
+  const myClips = root.animations.filter(clip =>
+    clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
+  );
 
   mixer.stopAllAction();
-  for (const clip of root.animations) {
+  for (const clip of myClips) {
     const action = mixer.clipAction(clip);
     action.reset();
     action.setLoop(LoopOnce, 1);
@@ -103,6 +109,10 @@ export function animationPlaySystem(world: HubsWorld) {
     const ctx = findAnimationContext(obj);
     if (!ctx) return;
 
+    const uuids = new Set<string>();
+    obj.traverse(child => uuids.add(child.uuid));
+    triggerUUIDs.set(eid, uuids);
+
     animRoots.set(eid, ctx.root);
     mixers.set(eid, new AnimationMixer(ctx.root));
     lastPlayCount.set(eid, NetworkedAnimationOnClick.playing[eid]);
@@ -119,6 +129,7 @@ export function animationPlaySystem(world: HubsWorld) {
     mixers.get(eid)?.stopAllAction();
     mixers.delete(eid);
     animRoots.delete(eid);
+    triggerUUIDs.delete(eid);
     lastPlayCount.delete(eid);
   });
 
