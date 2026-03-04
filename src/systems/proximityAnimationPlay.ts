@@ -1,12 +1,7 @@
 import { addComponent, defineQuery, enterQuery, exitQuery } from "bitecs";
 import { AnimationMixer, LoopOnce, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
-import {
-  MixerAnimatableData,
-  NetworkedProximityAnimation,
-  Object3DTag,
-  ProximityAnimation
-} from "../bit-components";
+import { MixerAnimatableData, NetworkedProximityAnimation, Object3DTag, ProximityAnimation } from "../bit-components";
 import { localClientID } from "../bit-systems/networking";
 
 const DISTANCES = { near: 2, medium: 5, far: 10 }; // metres
@@ -23,6 +18,9 @@ const triggerUUIDs = new Map<number, Set<string>>();
 const lastPlayCount = new Map<number, number>();
 const nameToEid = new Map<string, number>();
 const wasInRange = new Map<number, boolean>();
+const primed = new Map<number, boolean>();
+const inRangeFrames = new Map<number, number>();
+const DEBOUNCE_FRAMES = 10; // consecutive in-range frames before triggering
 
 let nafHandlerRegistered = false;
 
@@ -38,12 +36,15 @@ const objPos = new Vector3();
 function ensureNafHandler() {
   if (nafHandlerRegistered) return;
   nafHandlerRegistered = true;
-  NAF.connection.subscribeToDataChannel(NAF_DATA_TYPE, (_senderId: string, _dataType: string, data: { name: string }) => {
-    const eid = nameToEid.get(data.name);
-    if (eid !== undefined) {
-      NetworkedProximityAnimation.playing[eid]++;
+  NAF.connection.subscribeToDataChannel(
+    NAF_DATA_TYPE,
+    (_senderId: string, _dataType: string, data: { name: string }) => {
+      const eid = nameToEid.get(data.name);
+      if (eid !== undefined) {
+        NetworkedProximityAnimation.playing[eid]++;
+      }
     }
-  });
+  );
 }
 
 function findAnimationContext(obj: Object3D): { root: Object3D; aframeMixer: AnimationMixer | null } | null {
@@ -70,9 +71,7 @@ function playAnimations(eid: number) {
   const uuids = triggerUUIDs.get(eid);
   if (!root || !mixer || !uuids) return;
 
-  const myClips = root.animations.filter(clip =>
-    clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
-  );
+  const myClips = root.animations.filter(clip => clip.tracks.some(track => uuids.has(track.name.split(".")[0])));
 
   mixer.stopAllAction();
   for (const clip of myClips) {
@@ -119,9 +118,11 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
     mixers.set(eid, new AnimationMixer(ctx.root));
     lastPlayCount.set(eid, NetworkedProximityAnimation.playing[eid]);
 
-    // Seed wasInRange as true to prevent a false trigger on the first frame
-    // (positions may not be valid yet, causing both to read as origin / distance 0)
-    wasInRange.set(eid, true);
+    wasInRange.set(eid, false);
+    // Don't allow triggers until the user has been observed OUT of range at least once.
+    // This prevents false triggers from position jumps (e.g. "Enter Room" teleport).
+    primed.set(eid, false);
+    inRangeFrames.set(eid, 0);
 
     if (ctx.root.eid !== undefined) MixerAnimatableData.get(ctx.root.eid)?.stopAllAction();
     ctx.aframeMixer?.stopAllAction();
@@ -137,6 +138,8 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
     triggerUUIDs.delete(eid);
     lastPlayCount.delete(eid);
     wasInRange.delete(eid);
+    primed.delete(eid);
+    inRangeFrames.delete(eid);
   });
 
   // Advance all active mixers
@@ -155,13 +158,25 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
     const distSq = listenerPos.distanceToSquared(objPos);
     const inRange = distSq < thresholdSq;
 
-    if (inRange && !wasInRange.get(eid)) {
+    // Only arm the trigger once the user has been seen outside the zone
+    if (!inRange) {
+      primed.set(eid, true);
+      inRangeFrames.set(eid, 0);
+    } else {
+      inRangeFrames.set(eid, (inRangeFrames.get(eid) ?? 0) + 1);
+    }
+
+    // Require DEBOUNCE_FRAMES consecutive in-range frames to filter out
+    // transient position glitches (e.g. listener jumping to origin on room enter)
+    const stableInRange = inRange && (inRangeFrames.get(eid) ?? 0) >= DEBOUNCE_FRAMES;
+
+    if (stableInRange && primed.get(eid) && !wasInRange.get(eid)) {
       NetworkedProximityAnimation.playing[eid]++;
       if (typeof NAF !== "undefined" && localClientID) {
         NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
       }
     }
-    wasInRange.set(eid, inRange);
+    wasInRange.set(eid, stableInRange);
   });
 
   // Detect counter changes — triggered by local proximity and remote receives
