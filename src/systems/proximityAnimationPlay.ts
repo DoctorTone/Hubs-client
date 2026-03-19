@@ -78,7 +78,7 @@ function playAnimations(eid: number) {
     const action = mixer.clipAction(clip);
     action.reset();
     action.setLoop(LoopOnce, 1);
-    action.clampWhenFinished = false;
+    action.clampWhenFinished = true;
     action.play();
   }
 }
