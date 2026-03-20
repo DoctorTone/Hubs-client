@@ -85,15 +85,29 @@ function handleEnter(eid: number) {
   const myClips = getMyClips(eid);
   if (myClips.length === 0) return;
 
-  // Always play the first animation on enter
-  mixer.stopAllAction();
-  const clip = myClips[0];
-  const action = mixer.clipAction(clip);
-  action.reset();
-  action.setLoop(LoopOnce, 1);
-  action.clampWhenFinished = true;
-  action.play();
-  activeActions.set(eid, [action]);
+  if (myClips.length === 1) {
+    // 1 animation: loop continuously, unpause if already running
+    const clip = myClips[0];
+    const action = mixer.clipAction(clip);
+    if (action.paused) {
+      action.paused = false;
+    } else {
+      mixer.stopAllAction();
+      action.reset();
+      action.play();
+    }
+    activeActions.set(eid, [action]);
+  } else {
+    // 2+ animations: play the first animation once on enter
+    mixer.stopAllAction();
+    const clip = myClips[0];
+    const action = mixer.clipAction(clip);
+    action.reset();
+    action.setLoop(LoopOnce, 1);
+    action.clampWhenFinished = true;
+    action.play();
+    activeActions.set(eid, [action]);
+  }
 }
 
 function handleLeave(eid: number) {
