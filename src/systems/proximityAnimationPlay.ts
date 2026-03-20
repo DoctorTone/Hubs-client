@@ -1,5 +1,5 @@
 import { addComponent, defineQuery, enterQuery, exitQuery } from "bitecs";
-import { AnimationMixer, LoopOnce, Object3D, Vector3 } from "three";
+import { AnimationAction, AnimationMixer, LoopOnce, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
 import { MixerAnimatableData, NetworkedProximityAnimation, Object3DTag, ProximityAnimation } from "../bit-components";
 import { localClientID } from "../bit-systems/networking";
@@ -15,11 +15,13 @@ const NAF_DATA_TYPE = "proximity-animation-play";
 const mixers = new Map<number, AnimationMixer>();
 const animRoots = new Map<number, Object3D>();
 const triggerUUIDs = new Map<number, Set<string>>();
-const lastPlayCount = new Map<number, number>();
+const lastEnterCount = new Map<number, number>();
+const lastLeaveCount = new Map<number, number>();
 const nameToEid = new Map<string, number>();
 const wasInRange = new Map<number, boolean>();
 const primed = new Map<number, boolean>();
 const inRangeFrames = new Map<number, number>();
+const activeActions = new Map<number, AnimationAction[]>();
 const DEBOUNCE_FRAMES = 10; // consecutive in-range frames before triggering
 
 let nafHandlerRegistered = false;
@@ -38,10 +40,14 @@ function ensureNafHandler() {
   nafHandlerRegistered = true;
   NAF.connection.subscribeToDataChannel(
     NAF_DATA_TYPE,
-    (_senderId: string, _dataType: string, data: { name: string }) => {
+    (_senderId: string, _dataType: string, data: { name: string; action: "enter" | "leave" }) => {
       const eid = nameToEid.get(data.name);
       if (eid !== undefined) {
-        NetworkedProximityAnimation.playing[eid]++;
+        if (data.action === "enter") {
+          NetworkedProximityAnimation.entering[eid]++;
+        } else {
+          NetworkedProximityAnimation.leaving[eid]++;
+        }
       }
     }
   );
@@ -65,21 +71,56 @@ function findAnimationContext(obj: Object3D): { root: Object3D; aframeMixer: Ani
   return root ? { root, aframeMixer } : null;
 }
 
-function playAnimations(eid: number) {
+function getMyClips(eid: number) {
   const root = animRoots.get(eid);
-  const mixer = mixers.get(eid);
   const uuids = triggerUUIDs.get(eid);
-  if (!root || !mixer || !uuids) return;
+  if (!root || !uuids) return [];
+  return root.animations.filter(clip => clip.tracks.some(track => uuids.has(track.name.split(".")[0])));
+}
 
-  const myClips = root.animations.filter(clip => clip.tracks.some(track => uuids.has(track.name.split(".")[0])));
+function handleEnter(eid: number) {
+  const mixer = mixers.get(eid);
+  if (!mixer) return;
 
+  const myClips = getMyClips(eid);
+  if (myClips.length === 0) return;
+
+  // Always play the first animation on enter
   mixer.stopAllAction();
-  for (const clip of myClips) {
+  const clip = myClips[0];
+  const action = mixer.clipAction(clip);
+  action.reset();
+  action.setLoop(LoopOnce, 1);
+  action.clampWhenFinished = true;
+  action.play();
+  activeActions.set(eid, [action]);
+}
+
+function handleLeave(eid: number) {
+  const mixer = mixers.get(eid);
+  if (!mixer) return;
+
+  const myClips = getMyClips(eid);
+  if (myClips.length === 0) return;
+
+  if (myClips.length >= 2) {
+    // 2+ animations: play the second animation on leave
+    mixer.stopAllAction();
+    const clip = myClips[1];
     const action = mixer.clipAction(clip);
     action.reset();
     action.setLoop(LoopOnce, 1);
     action.clampWhenFinished = true;
     action.play();
+    activeActions.set(eid, [action]);
+  } else {
+    // 1 animation: pause it where it is
+    const actions = activeActions.get(eid);
+    if (actions) {
+      for (const action of actions) {
+        action.paused = true;
+      }
+    }
   }
 }
 
@@ -116,7 +157,8 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
 
     animRoots.set(eid, ctx.root);
     mixers.set(eid, new AnimationMixer(ctx.root));
-    lastPlayCount.set(eid, NetworkedProximityAnimation.playing[eid]);
+    lastEnterCount.set(eid, NetworkedProximityAnimation.entering[eid]);
+    lastLeaveCount.set(eid, NetworkedProximityAnimation.leaving[eid]);
 
     wasInRange.set(eid, false);
     // Don't allow triggers until the user has been observed OUT of range at least once.
@@ -136,10 +178,12 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
     mixers.delete(eid);
     animRoots.delete(eid);
     triggerUUIDs.delete(eid);
-    lastPlayCount.delete(eid);
+    lastEnterCount.delete(eid);
+    lastLeaveCount.delete(eid);
     wasInRange.delete(eid);
     primed.delete(eid);
     inRangeFrames.delete(eid);
+    activeActions.delete(eid);
   });
 
   // Advance all active mixers
@@ -170,25 +214,44 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
     // transient position glitches (e.g. listener jumping to origin on room enter)
     const stableInRange = inRange && (inRangeFrames.get(eid) ?? 0) >= DEBOUNCE_FRAMES;
 
+    // Detect entering proximity
     if (stableInRange && primed.get(eid) && !wasInRange.get(eid)) {
-      NetworkedProximityAnimation.playing[eid]++;
+      NetworkedProximityAnimation.entering[eid]++;
       if (typeof NAF !== "undefined" && localClientID) {
-        NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
+        NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name, action: "enter" });
       }
     }
+
+    // Detect leaving proximity
+    if (!stableInRange && wasInRange.get(eid)) {
+      NetworkedProximityAnimation.leaving[eid]++;
+      if (typeof NAF !== "undefined" && localClientID) {
+        NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name, action: "leave" });
+      }
+    }
+
     wasInRange.set(eid, stableInRange);
   });
 
   // Detect counter changes — triggered by local proximity and remote receives
   networkedAnimQuery(world).forEach(eid => {
-    const current = NetworkedProximityAnimation.playing[eid];
-    if (!lastPlayCount.has(eid)) {
-      lastPlayCount.set(eid, current);
+    const currentEnter = NetworkedProximityAnimation.entering[eid];
+    const currentLeave = NetworkedProximityAnimation.leaving[eid];
+
+    if (!lastEnterCount.has(eid)) {
+      lastEnterCount.set(eid, currentEnter);
+      lastLeaveCount.set(eid, currentLeave);
       return;
     }
-    if (current !== lastPlayCount.get(eid)) {
-      lastPlayCount.set(eid, current);
-      playAnimations(eid);
+
+    if (currentEnter !== lastEnterCount.get(eid)) {
+      lastEnterCount.set(eid, currentEnter);
+      handleEnter(eid);
+    }
+
+    if (currentLeave !== lastLeaveCount.get(eid)) {
+      lastLeaveCount.set(eid, currentLeave);
+      handleLeave(eid);
     }
   });
 }

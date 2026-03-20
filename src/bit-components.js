@@ -463,5 +463,6 @@ export const ProximityAnimation = defineComponent({
   threshold: Types.f32
 });
 export const NetworkedProximityAnimation = defineComponent({
-  playing: Types.ui32
+  entering: Types.ui32,
+  leaving: Types.ui32
 });
