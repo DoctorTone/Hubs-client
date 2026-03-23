@@ -95,6 +95,7 @@ import { snapMediaSystem } from "../bit-systems/snap-media-system";
 import { scaleWhenGrabbedSystem } from "../bit-systems/scale-when-grabbed-system";
 import { animationPlaySystem } from "./animationPlay";
 import { proximityAnimationPlaySystem } from "./proximityAnimationPlay";
+import { proximityVideoPlaySystem } from "./proximityVideoPlay";
 
 declare global {
   interface Window {
@@ -318,6 +319,7 @@ export function mainTick(xrFrame: XRFrame, renderer: WebGLRenderer, scene: Scene
 
   animationPlaySystem(world);
   proximityAnimationPlaySystem(world);
+  proximityVideoPlaySystem(world);
 
   if (enableNetworkDebug) {
     networkDebugSystem(world, scene);

@@ -466,3 +466,10 @@ export const NetworkedProximityAnimation = defineComponent({
   entering: Types.ui32,
   leaving: Types.ui32
 });
+export const ProximityVideo = defineComponent({
+  threshold: Types.f32
+});
+export const NetworkedProximityVideo = defineComponent({
+  entering: Types.ui32,
+  leaving: Types.ui32
+});
