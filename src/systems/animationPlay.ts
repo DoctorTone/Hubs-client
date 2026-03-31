@@ -1,5 +1,5 @@
 import { addComponent, defineQuery, enterQuery, exitQuery } from "bitecs";
-import { AnimationMixer, LoopOnce, Object3D } from "three";
+import { AnimationMixer, Box3, LoopOnce, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
 import {
   AnimationOnClick,
@@ -16,6 +16,12 @@ import { localClientID } from "../bit-systems/networking";
 const ANIMATION_NAME_TAG = "_interactive_animation";
 const NAF_DATA_TYPE = "animation-play";
 
+const enum TriggerMode {
+  Desktop, // click only (default)
+  Hand, // VR hand only
+  Both // click + VR hand
+}
+
 const mixers = new Map<number, AnimationMixer>();
 const animRoots = new Map<number, Object3D>();
 const triggerUUIDs = new Map<number, Set<string>>();
@@ -24,9 +30,14 @@ const nameToEid = new Map<string, number>();
 
 // Linked target animation support
 const targetName = new Map<number, string>(); // eid -> target object name suffix
-const targetMixers = new Map<number, AnimationMixer>();
-const targetRoots = new Map<number, Object3D>();
-const targetUUIDs = new Map<number, Set<string>>();
+const targetMixersList = new Map<number, AnimationMixer[]>();
+const targetRootsList = new Map<number, Object3D[]>();
+const targetUUIDsList = new Map<number, Set<string>[]>();
+
+// VR hand trigger support
+const triggerMode = new Map<number, TriggerMode>();
+const handBounds = new Map<number, Box3>();
+const handInside = new Map<number, boolean>(); // debounce: true while hand is inside
 
 let nafHandlerRegistered = false;
 
@@ -36,6 +47,10 @@ const animEnterQuery = enterQuery(animQuery);
 const animExitQuery = exitQuery(animQuery);
 const clickedQuery = enterQuery(defineQuery([AnimationOnClick, NetworkedAnimationOnClick, SingleActionButton, Interacted]));
 const networkedAnimQuery = defineQuery([AnimationOnClick, NetworkedAnimationOnClick]);
+
+// Reusable vectors for hand position checks
+const controllerPos = new Vector3();
+const tmpBox = new Box3();
 
 function ensureNafHandler() {
   if (nafHandlerRegistered) return;
@@ -70,15 +85,54 @@ function findAnimationContext(obj: Object3D): { root: Object3D; aframeMixer: Ani
   return root ? { root, aframeMixer } : null;
 }
 
-// Find a scene object by name, searching the entire scene graph
-function findSceneObjectByName(name: string): Object3D | null {
+// Find all scene objects matching the target name exactly or as TargetName_N (numbered suffix)
+function findSceneObjectsByTargetName(name: string): Object3D[] {
   const scene = AFRAME.scenes[0]?.object3D;
-  if (!scene) return null;
-  let found: Object3D | null = null;
+  if (!scene) return [];
+  const suffixPattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`);
+  const results: Object3D[] = [];
   scene.traverse((child: Object3D) => {
-    if (!found && child.name === name) found = child;
+    if (child.name === name || suffixPattern.test(child.name)) {
+      results.push(child);
+    }
   });
-  return found;
+  return results;
+}
+
+// Parse the suffix after _interactive_animation to extract mode and optional target name
+function parseSuffix(suffix: string): { mode: TriggerMode; target: string | null } {
+  if (!suffix) return { mode: TriggerMode.Desktop, target: null };
+
+  if (suffix === "hand") return { mode: TriggerMode.Hand, target: null };
+  if (suffix === "both") return { mode: TriggerMode.Both, target: null };
+  if (suffix.startsWith("hand_")) return { mode: TriggerMode.Hand, target: suffix.substring(5) };
+  if (suffix.startsWith("both_")) return { mode: TriggerMode.Both, target: suffix.substring(5) };
+
+  // No mode prefix — entire suffix is the target name, desktop mode
+  return { mode: TriggerMode.Desktop, target: suffix };
+}
+
+// Compute world-space AABB for an object
+function computeWorldBounds(obj: Object3D): Box3 {
+  const box = new Box3();
+  box.setFromObject(obj);
+  return box;
+}
+
+// Get VR controller Object3Ds (cached references)
+let leftController: Object3D | null = null;
+let rightController: Object3D | null = null;
+
+function getControllers(): { left: Object3D | null; right: Object3D | null } {
+  if (!leftController) {
+    const el = document.querySelector("#player-left-controller") as any;
+    if (el?.object3D) leftController = el.object3D;
+  }
+  if (!rightController) {
+    const el = document.querySelector("#player-right-controller") as any;
+    if (el?.object3D) rightController = el.object3D;
+  }
+  return { left: leftController, right: rightController };
 }
 
 function playClips(mixer: AnimationMixer, root: Object3D, uuids: Set<string>) {
@@ -109,12 +163,41 @@ function playAnimations(eid: number) {
 }
 
 function playTargetAnimations(eid: number) {
-  const tMixer = targetMixers.get(eid);
-  const tRoot = targetRoots.get(eid);
-  const tUuids = targetUUIDs.get(eid);
-  if (!tMixer || !tRoot || !tUuids) return;
+  const mixerList = targetMixersList.get(eid);
+  const rootList = targetRootsList.get(eid);
+  const uuidList = targetUUIDsList.get(eid);
+  if (!mixerList || !rootList || !uuidList) return;
 
-  playClips(tMixer, tRoot, tUuids);
+  for (let i = 0; i < mixerList.length; i++) {
+    playClips(mixerList[i], rootList[i], uuidList[i]);
+  }
+}
+
+// Check if either VR controller is inside the object's bounding box
+function isControllerInside(eid: number): boolean {
+  const bounds = handBounds.get(eid);
+  if (!bounds) return false;
+
+  // Recompute world bounds each frame (object may move)
+  const obj = (APP as any).world?.eid2obj?.get(eid);
+  if (obj) {
+    tmpBox.setFromObject(obj);
+  } else {
+    tmpBox.copy(bounds);
+  }
+
+  const { left, right } = getControllers();
+
+  if (left) {
+    left.getWorldPosition(controllerPos);
+    if (tmpBox.containsPoint(controllerPos)) return true;
+  }
+  if (right) {
+    right.getWorldPosition(controllerPos);
+    if (tmpBox.containsPoint(controllerPos)) return true;
+  }
+
+  return false;
 }
 
 export function animationPlaySystem(world: HubsWorld) {
@@ -127,17 +210,35 @@ export function animationPlaySystem(world: HubsWorld) {
   newObjectQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
     if (!obj?.name.includes(ANIMATION_NAME_TAG)) return;
+
+    // Parse mode and target from the suffix
+    const suffixStart = obj.name.indexOf(ANIMATION_NAME_TAG) + ANIMATION_NAME_TAG.length;
+    let suffix = "";
+    if (suffixStart < obj.name.length && obj.name[suffixStart] === "_") {
+      suffix = obj.name.substring(suffixStart + 1);
+    }
+    const { mode, target } = parseSuffix(suffix);
+
     addComponent(world, AnimationOnClick, eid);
     addComponent(world, NetworkedAnimationOnClick, eid);
-    addComponent(world, CursorRaycastable, eid);
-    addComponent(world, RemoteHoverTarget, eid);
     addComponent(world, SingleActionButton, eid);
     nameToEid.set(obj.name, eid);
+    triggerMode.set(eid, mode);
 
-    // Parse target name: everything after "_interactive_animation_"
-    const suffixStart = obj.name.indexOf(ANIMATION_NAME_TAG) + ANIMATION_NAME_TAG.length;
-    if (suffixStart < obj.name.length && obj.name[suffixStart] === "_") {
-      targetName.set(eid, obj.name.substring(suffixStart + 1));
+    // Only add click/raycast components for desktop and both modes
+    if (mode === TriggerMode.Desktop || mode === TriggerMode.Both) {
+      addComponent(world, CursorRaycastable, eid);
+      addComponent(world, RemoteHoverTarget, eid);
+    }
+
+    if (target) {
+      targetName.set(eid, target);
+    }
+
+    // Set up bounding box for hand modes
+    if (mode === TriggerMode.Hand || mode === TriggerMode.Both) {
+      handBounds.set(eid, computeWorldBounds(obj));
+      handInside.set(eid, false);
     }
   });
 
@@ -160,21 +261,33 @@ export function animationPlaySystem(world: HubsWorld) {
     if (ctx.root.eid !== undefined) MixerAnimatableData.get(ctx.root.eid)?.stopAllAction();
     ctx.aframeMixer?.stopAllAction();
 
-    // Set up linked target if this object has a target name suffix
+    // Set up linked targets if this object has a target name suffix
     const tName = targetName.get(eid);
     if (tName) {
-      const tObj = findSceneObjectByName(tName);
-      if (tObj) {
-        const tCtx = findAnimationContext(tObj);
-        if (tCtx) {
+      const tObjects = findSceneObjectsByTargetName(tName);
+      if (tObjects.length > 0) {
+        const mixerList: AnimationMixer[] = [];
+        const rootList: Object3D[] = [];
+        const uuidList: Set<string>[] = [];
+
+        for (const tObj of tObjects) {
+          const tCtx = findAnimationContext(tObj);
+          if (!tCtx) continue;
+
           const tUuids = new Set<string>();
           tObj.traverse(child => tUuids.add(child.uuid));
-          targetUUIDs.set(eid, tUuids);
-          targetRoots.set(eid, tCtx.root);
-          targetMixers.set(eid, new AnimationMixer(tCtx.root));
+          uuidList.push(tUuids);
+          rootList.push(tCtx.root);
+          mixerList.push(new AnimationMixer(tCtx.root));
 
           if (tCtx.root.eid !== undefined) MixerAnimatableData.get(tCtx.root.eid)?.stopAllAction();
           tCtx.aframeMixer?.stopAllAction();
+        }
+
+        if (mixerList.length > 0) {
+          targetMixersList.set(eid, mixerList);
+          targetRootsList.set(eid, rootList);
+          targetUUIDsList.set(eid, uuidList);
         }
       }
     }
@@ -190,20 +303,24 @@ export function animationPlaySystem(world: HubsWorld) {
     triggerUUIDs.delete(eid);
     lastPlayCount.delete(eid);
     targetName.delete(eid);
-    targetMixers.get(eid)?.stopAllAction();
-    targetMixers.delete(eid);
-    targetRoots.delete(eid);
-    targetUUIDs.delete(eid);
+    triggerMode.delete(eid);
+    targetMixersList.get(eid)?.forEach(m => m.stopAllAction());
+    targetMixersList.delete(eid);
+    targetRootsList.delete(eid);
+    targetUUIDsList.delete(eid);
+    handBounds.delete(eid);
+    handInside.delete(eid);
   });
 
   // Advance all active mixers (including linked targets)
   animQuery(world).forEach(eid => {
     const dt = world.time.delta / 1000.0;
     mixers.get(eid)?.update(dt);
-    targetMixers.get(eid)?.update(dt);
+    targetMixersList.get(eid)?.forEach(m => m.update(dt));
   });
 
   // On click: increment counter locally and broadcast to other clients by name
+  // Only fires for Desktop and Both modes (Hand-only objects have no CursorRaycastable)
   clickedQuery(world).forEach(eid => {
     NetworkedAnimationOnClick.playing[eid]++;
     const obj = world.eid2obj.get(eid);
@@ -212,7 +329,30 @@ export function animationPlaySystem(world: HubsWorld) {
     }
   });
 
-  // Detect counter changes — triggered by local clicks and remote receives
+  // VR hand collision check — only when in VR mode
+  const inVR = APP.scene?.is("vr-mode");
+  if (inVR) {
+    networkedAnimQuery(world).forEach(eid => {
+      const mode = triggerMode.get(eid);
+      if (mode !== TriggerMode.Hand && mode !== TriggerMode.Both) return;
+
+      const inside = isControllerInside(eid);
+      const wasInside = handInside.get(eid) ?? false;
+
+      // Trigger on entry only — require hand to leave before re-triggering
+      if (inside && !wasInside) {
+        NetworkedAnimationOnClick.playing[eid]++;
+        const obj = world.eid2obj.get(eid);
+        if (obj && typeof NAF !== "undefined" && localClientID) {
+          NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
+        }
+      }
+
+      handInside.set(eid, inside);
+    });
+  }
+
+  // Detect counter changes — triggered by local clicks, hand entry, and remote receives
   networkedAnimQuery(world).forEach(eid => {
     const current = NetworkedAnimationOnClick.playing[eid];
     if (!lastPlayCount.has(eid)) {
