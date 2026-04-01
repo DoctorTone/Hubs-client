@@ -210,8 +210,9 @@ export function animationPlaySystem(world: HubsWorld) {
   // Auto-tag any object whose name contains the marker string
   newObjectQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
+    if (!obj) return;
     // Strip common file extensions before checking for the animation tag
-    const objName = obj?.name.replace(/\.(glb|gltf|fbx|obj)$/i, "") ?? "";
+    const objName = obj.name.replace(/\.(glb|gltf|fbx|obj)$/i, "");
     if (!objName.includes(ANIMATION_NAME_TAG)) return;
 
     // Parse mode and target from the suffix
