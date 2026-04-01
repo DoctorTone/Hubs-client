@@ -11,7 +11,7 @@ function camelCase(s: string) {
   return s.replace(/-(\w)/g, (_, m) => m.toUpperCase());
 }
 
-export type ModelParams = { model: Object3D };
+export type ModelParams = { model: Object3D; autoPlayAnimations?: boolean };
 
 // These components are all handled in some special way, not through inflators
 const ignoredComponents = [
@@ -59,7 +59,7 @@ function inflateComponents(
   });
 }
 
-export function inflateModel(world: HubsWorld, rootEid: number, { model }: ModelParams) {
+export function inflateModel(world: HubsWorld, rootEid: number, { model, autoPlayAnimations = true }: ModelParams) {
   const swap: [old: Object3D, replacement: Object3D][] = [];
   const idx2eid = new Map<number, number>();
   model.traverse(obj => {
@@ -163,9 +163,7 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model }: Model
   // See https://github.com/Hubs-Foundation/hubs/pull/5938#discussion_r1163410185
   if (model.animations !== undefined && model.animations.length > 0) {
     addComponent(world, MixerAnimatableInitialize, rootEid);
-    // Only auto-play if the glTF explicitly has a loop-animation component (e.g. from Spoke).
-    // Plain uploaded objects without the component will not auto-animate.
-    if (loopAnimationParams.length > 0) {
+    if (autoPlayAnimations) {
       inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
     }
   }

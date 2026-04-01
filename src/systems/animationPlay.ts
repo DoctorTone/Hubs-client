@@ -92,8 +92,7 @@ function findSceneObjectsByTargetName(name: string): Object3D[] {
   const suffixPattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`);
   const results: Object3D[] = [];
   scene.traverse((child: Object3D) => {
-    const childName = child.name.replace(/\.(glb|gltf|fbx|obj)$/i, "");
-    if (childName === name || suffixPattern.test(childName)) {
+    if (child.name === name || suffixPattern.test(child.name)) {
       results.push(child);
     }
   });

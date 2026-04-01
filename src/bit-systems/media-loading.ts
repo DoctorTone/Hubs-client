@@ -250,7 +250,7 @@ function* loadByMediaType(
       );
       break;
     case MediaType.MODEL:
-      mediaEid = yield* loadModel(world, accessibleUrl, contentType, true);
+      mediaEid = yield* loadModel(world, accessibleUrl, contentType, true, false);
       break;
     case MediaType.PDF:
       return yield* loadPDF(world, eid, accessibleUrl, !isLinked);
