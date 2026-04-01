@@ -163,7 +163,8 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model }: Model
   // See https://github.com/Hubs-Foundation/hubs/pull/5938#discussion_r1163410185
   if (model.animations !== undefined && model.animations.length > 0) {
     addComponent(world, MixerAnimatableInitialize, rootEid);
-    inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
+    // Temporarily disabled to prevent uploaded objects from auto-playing animations
+    // inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
   }
 
   addComponent(world, GLTFModel, rootEid);
