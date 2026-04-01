@@ -79,9 +79,7 @@ AFRAME.registerComponent("loop-animation", {
       action.enabled = true;
       action.time = this.data.startOffset;
       action.timeScale = this.data.timeScale;
-      // Temporarily disabled to prevent uploaded objects from auto-playing animations
-      // action.setLoop(THREE.LoopRepeat, Infinity).play();
-      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.setLoop(THREE.LoopRepeat, Infinity).play();
       this.currentActions.push(action);
     }
   },

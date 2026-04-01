@@ -163,8 +163,11 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model }: Model
   // See https://github.com/Hubs-Foundation/hubs/pull/5938#discussion_r1163410185
   if (model.animations !== undefined && model.animations.length > 0) {
     addComponent(world, MixerAnimatableInitialize, rootEid);
-    // Temporarily disabled to prevent uploaded objects from auto-playing animations
-    // inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
+    // Only auto-play if the glTF explicitly has a loop-animation component (e.g. from Spoke).
+    // Plain uploaded objects without the component will not auto-animate.
+    if (loopAnimationParams.length > 0) {
+      inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
+    }
   }
 
   addComponent(world, GLTFModel, rootEid);

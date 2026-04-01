@@ -92,7 +92,8 @@ function findSceneObjectsByTargetName(name: string): Object3D[] {
   const suffixPattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`);
   const results: Object3D[] = [];
   scene.traverse((child: Object3D) => {
-    if (child.name === name || suffixPattern.test(child.name)) {
+    const childName = child.name.replace(/\.(glb|gltf|fbx|obj)$/i, "");
+    if (childName === name || suffixPattern.test(childName)) {
       results.push(child);
     }
   });
@@ -209,13 +210,15 @@ export function animationPlaySystem(world: HubsWorld) {
   // Auto-tag any object whose name contains the marker string
   newObjectQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
-    if (!obj?.name.includes(ANIMATION_NAME_TAG)) return;
+    // Strip common file extensions before checking for the animation tag
+    const objName = obj?.name.replace(/\.(glb|gltf|fbx|obj)$/i, "") ?? "";
+    if (!objName.includes(ANIMATION_NAME_TAG)) return;
 
     // Parse mode and target from the suffix
-    const suffixStart = obj.name.indexOf(ANIMATION_NAME_TAG) + ANIMATION_NAME_TAG.length;
+    const suffixStart = objName.indexOf(ANIMATION_NAME_TAG) + ANIMATION_NAME_TAG.length;
     let suffix = "";
-    if (suffixStart < obj.name.length && obj.name[suffixStart] === "_") {
-      suffix = obj.name.substring(suffixStart + 1);
+    if (suffixStart < objName.length && objName[suffixStart] === "_") {
+      suffix = objName.substring(suffixStart + 1);
     }
     const { mode, target } = parseSuffix(suffix);
 
