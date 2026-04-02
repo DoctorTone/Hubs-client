@@ -162,10 +162,14 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model, autoPla
   //       or root level. Revisit the specification.
   // See https://github.com/Hubs-Foundation/hubs/pull/5938#discussion_r1163410185
   if (model.animations !== undefined && model.animations.length > 0) {
+    console.log(`[inflateModel] rootEid=${rootEid} animations=${model.animations.length} autoPlay=${autoPlayAnimations}`);
+    model.animations.forEach((clip, i) => console.log(`  [inflateModel] clip[${i}]: "${clip.name}" tracks=${clip.tracks.length}`));
     addComponent(world, MixerAnimatableInitialize, rootEid);
     if (autoPlayAnimations) {
       inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
     }
+  } else {
+    console.log(`[inflateModel] rootEid=${rootEid} NO animations (animations=${model.animations?.length ?? "undefined"}) autoPlay=${autoPlayAnimations}`);
   }
 
   addComponent(world, GLTFModel, rootEid);

@@ -80,9 +80,13 @@ function getMyClips(eid: number) {
 
 function handleEnter(eid: number) {
   const mixer = mixers.get(eid);
-  if (!mixer) return;
+  if (!mixer) {
+    console.warn(`[proxAnim] handleEnter eid=${eid} — no mixer`);
+    return;
+  }
 
   const myClips = getMyClips(eid);
+  console.log(`[proxAnim] handleEnter eid=${eid} clips=${myClips.length} clipNames=[${myClips.map(c => c.name).join(", ")}]`);
   if (myClips.length === 0) return;
 
   if (myClips.length === 1) {
@@ -149,6 +153,7 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
     if (!obj) return;
     for (const [token, distance] of Object.entries(PROXIMITY_TOKENS)) {
       if (obj.name.includes(token)) {
+        console.log(`[proxAnim] TAGGED eid=${eid} name="${obj.name}" token="${token}" distance=${distance}`);
         addComponent(world, ProximityAnimation, eid);
         addComponent(world, NetworkedProximityAnimation, eid);
         ProximityAnimation.threshold[eid] = distance;
@@ -161,9 +166,25 @@ export function proximityAnimationPlaySystem(world: HubsWorld) {
   // Set up mixer and suppress auto-play for newly tagged entities
   animEnterQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
-    if (!obj) return;
+    if (!obj) {
+      console.warn(`[proxAnim] ENTER eid=${eid} — no Object3D, skipping`);
+      return;
+    }
     const ctx = findAnimationContext(obj);
-    if (!ctx) return;
+    if (!ctx) {
+      console.warn(`[proxAnim] ENTER eid=${eid} name="${obj.name}" — findAnimationContext returned NULL`);
+      let p = obj.parent;
+      let depth = 0;
+      while (p && depth < 10) {
+        console.log(`  [proxAnim]   parent[${depth}]: "${p.name}" type=${p.type} animations=${p.animations?.length ?? 0} eid=${(p as any).eid ?? "none"}`);
+        p = p.parent;
+        depth++;
+      }
+      return;
+    }
+
+    console.log(`[proxAnim] ENTER eid=${eid} name="${obj.name}" root="${ctx.root.name}" rootAnimations=${ctx.root.animations?.length} aframeMixer=${!!ctx.aframeMixer}`);
+    ctx.root.animations?.forEach((clip, i) => console.log(`  [proxAnim]   clip[${i}]: "${clip.name}" tracks=${clip.tracks.length}`));
 
     const uuids = new Set<string>();
     obj.traverse(child => uuids.add(child.uuid));

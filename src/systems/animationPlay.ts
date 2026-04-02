@@ -154,7 +154,13 @@ function playAnimations(eid: number) {
   const root = animRoots.get(eid);
   const mixer = mixers.get(eid);
   const uuids = triggerUUIDs.get(eid);
-  if (!root || !mixer || !uuids) return;
+  if (!root || !mixer || !uuids) {
+    console.warn(`[animPlay] playAnimations eid=${eid} — missing: root=${!!root} mixer=${!!mixer} uuids=${!!uuids}`);
+    return;
+  }
+
+  const clips = root.animations?.filter(clip => clip.tracks.some(track => uuids.has(track.name.split(".")[0])));
+  console.log(`[animPlay] playAnimations eid=${eid} root="${root.name}" matchingClips=${clips?.length ?? 0} totalClips=${root.animations?.length ?? 0}`);
 
   playClips(mixer, root, uuids);
 
@@ -163,13 +169,51 @@ function playAnimations(eid: number) {
 }
 
 function playTargetAnimations(eid: number) {
-  const mixerList = targetMixersList.get(eid);
-  const rootList = targetRootsList.get(eid);
-  const uuidList = targetUUIDsList.get(eid);
-  if (!mixerList || !rootList || !uuidList) return;
+  const tName = targetName.get(eid);
+  if (!tName) return;
 
-  for (let i = 0; i < mixerList.length; i++) {
-    playClips(mixerList[i], rootList[i], uuidList[i]);
+  // Resolve targets lazily each time so late-arriving objects (e.g. uploads) are found
+  const tObjects = findSceneObjectsByTargetName(tName);
+  if (tObjects.length === 0) {
+    console.log(`[animPlay] playTargetAnimations eid=${eid} target="${tName}" — no objects found`);
+    return;
+  }
+
+  // Stop any previously active target mixers
+  targetMixersList.get(eid)?.forEach(m => m.stopAllAction());
+
+  const mixerList: AnimationMixer[] = [];
+  const rootList: Object3D[] = [];
+  const uuidList: Set<string>[] = [];
+
+  for (const tObj of tObjects) {
+    const tCtx = findAnimationContext(tObj);
+    if (!tCtx) {
+      console.warn(`[animPlay] playTargetAnimations target "${tObj.name}" — findAnimationContext returned NULL`);
+      continue;
+    }
+
+    const tUuids = new Set<string>();
+    tObj.traverse(child => tUuids.add(child.uuid));
+    uuidList.push(tUuids);
+    rootList.push(tCtx.root);
+    mixerList.push(new AnimationMixer(tCtx.root));
+
+    if (tCtx.root.eid !== undefined) MixerAnimatableData.get(tCtx.root.eid)?.stopAllAction();
+    tCtx.aframeMixer?.stopAllAction();
+  }
+
+  console.log(`[animPlay] playTargetAnimations eid=${eid} target="${tName}" found=${tObjects.length} withAnims=${mixerList.length}`);
+
+  // Cache for the update loop to tick, and play
+  if (mixerList.length > 0) {
+    targetMixersList.set(eid, mixerList);
+    targetRootsList.set(eid, rootList);
+    targetUUIDsList.set(eid, uuidList);
+
+    for (let i = 0; i < mixerList.length; i++) {
+      playClips(mixerList[i], rootList[i], uuidList[i]);
+    }
   }
 }
 
@@ -214,6 +258,8 @@ export function animationPlaySystem(world: HubsWorld) {
     const objName = obj.name.replace(/\.(glb|gltf|fbx|obj)$/i, "");
     if (!objName.includes(ANIMATION_NAME_TAG)) return;
 
+    console.log(`[animPlay] TAGGED eid=${eid} name="${obj.name}" stripped="${objName}"`);
+
     // Parse mode and target from the suffix
     const suffixStart = objName.indexOf(ANIMATION_NAME_TAG) + ANIMATION_NAME_TAG.length;
     let suffix = "";
@@ -221,6 +267,8 @@ export function animationPlaySystem(world: HubsWorld) {
       suffix = objName.substring(suffixStart + 1);
     }
     const { mode, target } = parseSuffix(suffix);
+
+    console.log(`[animPlay]   mode=${mode} target=${target ?? "none"} suffix="${suffix}"`);
 
     addComponent(world, AnimationOnClick, eid);
     addComponent(world, NetworkedAnimationOnClick, eid);
@@ -248,9 +296,26 @@ export function animationPlaySystem(world: HubsWorld) {
   // Set up mixer and suppress auto-play for newly tagged entities
   animEnterQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
-    if (!obj) return;
+    if (!obj) {
+      console.warn(`[animPlay] ENTER eid=${eid} — no Object3D, skipping`);
+      return;
+    }
     const ctx = findAnimationContext(obj);
-    if (!ctx) return;
+    if (!ctx) {
+      console.warn(`[animPlay] ENTER eid=${eid} name="${obj.name}" — findAnimationContext returned NULL (no ancestor with animations)`);
+      // Walk parents to show hierarchy for debugging
+      let p = obj.parent;
+      let depth = 0;
+      while (p && depth < 10) {
+        console.log(`  [animPlay]   parent[${depth}]: "${p.name}" type=${p.type} animations=${p.animations?.length ?? 0} eid=${(p as any).eid ?? "none"}`);
+        p = p.parent;
+        depth++;
+      }
+      return;
+    }
+
+    console.log(`[animPlay] ENTER eid=${eid} name="${obj.name}" root="${ctx.root.name}" rootAnimations=${ctx.root.animations?.length} aframeMixer=${!!ctx.aframeMixer}`);
+    ctx.root.animations?.forEach((clip, i) => console.log(`  [animPlay]   clip[${i}]: "${clip.name}" tracks=${clip.tracks.length}`));
 
     const uuids = new Set<string>();
     obj.traverse(child => uuids.add(child.uuid));
@@ -264,36 +329,8 @@ export function animationPlaySystem(world: HubsWorld) {
     if (ctx.root.eid !== undefined) MixerAnimatableData.get(ctx.root.eid)?.stopAllAction();
     ctx.aframeMixer?.stopAllAction();
 
-    // Set up linked targets if this object has a target name suffix
-    const tName = targetName.get(eid);
-    if (tName) {
-      const tObjects = findSceneObjectsByTargetName(tName);
-      if (tObjects.length > 0) {
-        const mixerList: AnimationMixer[] = [];
-        const rootList: Object3D[] = [];
-        const uuidList: Set<string>[] = [];
-
-        for (const tObj of tObjects) {
-          const tCtx = findAnimationContext(tObj);
-          if (!tCtx) continue;
-
-          const tUuids = new Set<string>();
-          tObj.traverse(child => tUuids.add(child.uuid));
-          uuidList.push(tUuids);
-          rootList.push(tCtx.root);
-          mixerList.push(new AnimationMixer(tCtx.root));
-
-          if (tCtx.root.eid !== undefined) MixerAnimatableData.get(tCtx.root.eid)?.stopAllAction();
-          tCtx.aframeMixer?.stopAllAction();
-        }
-
-        if (mixerList.length > 0) {
-          targetMixersList.set(eid, mixerList);
-          targetRootsList.set(eid, rootList);
-          targetUUIDsList.set(eid, uuidList);
-        }
-      }
-    }
+    // Target resolution is now done lazily in playTargetAnimations
+    // so that objects uploaded after scene load are found
   });
 
   // Clean up when entity is removed
