@@ -6,6 +6,9 @@ import { Vector3 } from "three";
 import qsTruthy from "./utils/qs_truthy";
 import { shouldUseNewLoader } from "./utils/bit-utils";
 
+// Maps upload src URL -> original filename so the model can be named in the scene graph
+export const uploadDisplayNames = new Map<string, string>();
+
 type UploadResponse = {
   file_id: string;
   meta: {
@@ -44,6 +47,7 @@ export async function spawnFromFileList(files: FileList) {
       .then(function (response: UploadResponse) {
         const srcUrl = new URL(response.origin);
         srcUrl.searchParams.set("token", response.meta.access_token);
+        uploadDisplayNames.set(srcUrl.href, file.name);
         return {
           src: srcUrl.href,
           recenter: true,

@@ -10,6 +10,7 @@ import {
   removeEntity
 } from "bitecs";
 import { Box3, Group, Matrix4, Quaternion, Vector3 } from "three";
+import { uploadDisplayNames } from "../load-media-on-paste-or-drop";
 import { HubsWorld } from "../app";
 import {
   GLTFModel,
@@ -249,9 +250,15 @@ function* loadByMediaType(
         !isLinked
       );
       break;
-    case MediaType.MODEL:
-      mediaEid = yield* loadModel(world, accessibleUrl, contentType, true, false);
+    case MediaType.MODEL: {
+      const displayName = uploadDisplayNames.get(canonicalUrl) || uploadDisplayNames.get(accessibleUrl);
+      if (displayName) {
+        uploadDisplayNames.delete(canonicalUrl);
+        uploadDisplayNames.delete(accessibleUrl);
+      }
+      mediaEid = yield* loadModel(world, accessibleUrl, contentType, true, false, displayName);
       break;
+    }
     case MediaType.PDF:
       return yield* loadPDF(world, eid, accessibleUrl, !isLinked);
     case MediaType.AUDIO:

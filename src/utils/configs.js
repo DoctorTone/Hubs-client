@@ -10,6 +10,7 @@ const configs = {};
 let isAdmin = false;
 [
   "RETICULUM_SERVER",
+  "RETICULUM_SOCKET_SERVER",
   "THUMBNAIL_SERVER",
   "CORS_PROXY_SERVER",
   "NON_CORS_PROXY_DOMAINS",

@@ -226,9 +226,10 @@ module.exports = async (env, argv) => {
   // Load environment variables from .env files.
   // .env takes precedent over .defaults.env
   // Previously defined environment variables are not overwritten
-  dotenv.config({ path: ".env" });
+  dotenv.config({ path: ".env", override: true });
   dotenv.config({ path: ".defaults.env" });
 
+  console.log("DEBUG RETICULUM_SOCKET_SERVER:", process.env.RETICULUM_SOCKET_SERVER);
   let appConfig = undefined;
 
   /**
@@ -746,6 +747,7 @@ module.exports = async (env, argv) => {
         filename: "assets/stylesheets/[name]-[contenthash].css"
       }),
       // Define process.env variables in the browser context.
+      console.log("DEBUG AT BUNDLE TIME:", process.env.RETICULUM_SOCKET_SERVER),
       new webpack.DefinePlugin({
         "process.env": JSON.stringify({
           NODE_ENV: argv.mode,

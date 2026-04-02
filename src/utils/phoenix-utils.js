@@ -102,6 +102,8 @@ async function refreshDirectReticulumHostAndPort() {
   const qs = new URLSearchParams(location.search);
   let host = qs.get("phx_host");
   const reticulumMeta = await getReticulumMeta();
+  console.log("phx_host from meta:", reticulumMeta.phx_host);
+  console.log("RETICULUM_SOCKET_SERVER:", configs.RETICULUM_SOCKET_SERVER);
   host = host || configs.RETICULUM_SOCKET_SERVER || reticulumMeta.phx_host;
   const port =
     qs.get("phx_port") ||
