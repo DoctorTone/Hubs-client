@@ -85,6 +85,28 @@ function findAnimationContext(obj: Object3D): { root: Object3D; aframeMixer: Ani
   return root ? { root, aframeMixer } : null;
 }
 
+// Stop only the clip actions whose tracks reference the given entity's descendant UUIDs,
+// rather than calling stopAllAction() which would kill unrelated animations on a shared mixer.
+function stopClipsForEntity(
+  ctx: { root: Object3D; aframeMixer: AnimationMixer | null },
+  uuids: Set<string>,
+  obj: Object3D
+) {
+  if (!ctx.root.animations) return;
+  const myClips = ctx.root.animations.filter(clip =>
+    clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
+  );
+  const bitecsMixer = ctx.root.eid !== undefined ? MixerAnimatableData.get(ctx.root.eid) : null;
+  for (const clip of myClips) {
+    if (bitecsMixer) {
+      bitecsMixer.clipAction(clip, obj).stop();
+    }
+    if (ctx.aframeMixer) {
+      ctx.aframeMixer.clipAction(clip, obj).stop();
+    }
+  }
+}
+
 // Find all scene objects matching the target name exactly or as TargetName_N (numbered suffix)
 function findSceneObjectsByTargetName(name: string): Object3D[] {
   const scene = AFRAME.scenes[0]?.object3D;
@@ -187,8 +209,7 @@ function playTargetAnimations(eid: number) {
     rootList.push(tCtx.root);
     mixerList.push(new AnimationMixer(tCtx.root));
 
-    if (tCtx.root.eid !== undefined) MixerAnimatableData.get(tCtx.root.eid)?.stopAllAction();
-    tCtx.aframeMixer?.stopAllAction();
+    stopClipsForEntity(tCtx, tUuids, tObj);
   }
 
   // Cache for the update loop to tick, and play
@@ -290,9 +311,9 @@ export function animationPlaySystem(world: HubsWorld) {
     mixers.set(eid, new AnimationMixer(ctx.root));
     lastPlayCount.set(eid, NetworkedAnimationOnClick.playing[eid]);
 
-    // Stop auto-play from both the bitecs and AFrame animation systems
-    if (ctx.root.eid !== undefined) MixerAnimatableData.get(ctx.root.eid)?.stopAllAction();
-    ctx.aframeMixer?.stopAllAction();
+    // Stop auto-play only for clips belonging to this entity, leaving other
+    // animations (e.g. Spoke auto-animate objects) on the shared mixer untouched.
+    stopClipsForEntity(ctx, uuids, obj);
 
     // Target resolution is now done lazily in playTargetAnimations
     // so that objects uploaded after scene load are found
