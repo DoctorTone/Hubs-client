@@ -96,6 +96,7 @@ import { scaleWhenGrabbedSystem } from "../bit-systems/scale-when-grabbed-system
 import { animationPlaySystem } from "./animationPlay";
 import { proximityAnimationPlaySystem } from "./proximityAnimationPlay";
 import { proximityVideoPlaySystem } from "./proximityVideoPlay";
+import { proximityAudioPlaySystem } from "./proximityAudioPlay";
 
 declare global {
   interface Window {
@@ -320,6 +321,7 @@ export function mainTick(xrFrame: XRFrame, renderer: WebGLRenderer, scene: Scene
   animationPlaySystem(world);
   proximityAnimationPlaySystem(world);
   proximityVideoPlaySystem(world);
+  proximityAudioPlaySystem(world);
 
   if (enableNetworkDebug) {
     networkDebugSystem(world, scene);

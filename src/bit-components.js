@@ -473,3 +473,10 @@ export const NetworkedProximityVideo = defineComponent({
   entering: Types.ui32,
   leaving: Types.ui32
 });
+export const ProximityAudio = defineComponent({
+  threshold: Types.f32
+});
+export const NetworkedProximityAudio = defineComponent({
+  entering: Types.ui32,
+  leaving: Types.ui32
+});
