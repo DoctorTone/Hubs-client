@@ -1,13 +1,16 @@
 import { addComponent, defineQuery, enterQuery, exitQuery } from "bitecs";
-import { AnimationMixer, Box3, LoopOnce, Object3D, Vector3 } from "three";
+import { AnimationMixer, Box3, LoopOnce, LoopRepeat, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
 import {
   AnimationOnClick,
   CursorRaycastable,
+  Held,
+  Holdable,
   Interacted,
   MixerAnimatableData,
   NetworkedAnimationOnClick,
   Object3DTag,
+  OffersRemoteConstraint,
   RemoteHoverTarget,
   SingleActionButton
 } from "../bit-components";
@@ -39,6 +42,17 @@ const triggerMode = new Map<number, TriggerMode>();
 const handBounds = new Map<number, Box3>();
 const handInside = new Map<number, boolean>(); // debounce: true while hand is inside
 
+// _loop suffix support: looping triggers toggle on/off with each click instead of
+// playing once. Loop only applies to direct animation (no _<target> suffix).
+const loopMode = new Map<number, boolean>();
+const loopPlaying = new Map<number, boolean>();
+
+// _clip_<name> suffix support: trigger plays one specific named clip on its target.
+// While the clip is playing, further clicks on any clip-trigger sharing the same target
+// are ignored — the user is locked into their choice until it finishes.
+const clipName = new Map<number, string>();
+const targetLockUntil = new Map<string, number>();
+
 let nafHandlerRegistered = false;
 
 const newObjectQuery = enterQuery(defineQuery([Object3DTag]));
@@ -47,10 +61,20 @@ const animEnterQuery = enterQuery(animQuery);
 const animExitQuery = exitQuery(animQuery);
 const clickedQuery = enterQuery(defineQuery([AnimationOnClick, NetworkedAnimationOnClick, SingleActionButton, Interacted]));
 const networkedAnimQuery = defineQuery([AnimationOnClick, NetworkedAnimationOnClick]);
+const heldAnimEnterQuery = enterQuery(defineQuery([AnimationOnClick, Held]));
+const heldAnimExitQuery = exitQuery(defineQuery([AnimationOnClick, Held]));
+
+// Click-vs-hold thresholds: a release within this time and distance counts as a click
+// (animate); anything longer or further is treated as a drag (no animation).
+const CLICK_DURATION_MS = 250;
+const CLICK_DISTANCE_M = 0.05;
+const heldStartTime = new Map<number, number>();
+const heldStartPos = new Map<number, Vector3>();
 
 // Reusable vectors for hand position checks
 const controllerPos = new Vector3();
 const tmpBox = new Box3();
+const tmpPos = new Vector3();
 
 function ensureNafHandler() {
   if (nafHandlerRegistered) return;
@@ -107,31 +131,65 @@ function stopClipsForEntity(
   }
 }
 
-// Find all scene objects matching the target name exactly or as TargetName_N (numbered suffix)
+// Find all scene objects matching the target name exactly or as TargetName_N.
+// The GLTF loader auto-disambiguates duplicate names by appending _1, _2, etc.,
+// so naming several Spoke objects the same thing produces this suffix pattern.
+// File extensions on either side are stripped so dropped-in models like "robot.glb"
+// match a target written as "robot".
 function findSceneObjectsByTargetName(name: string): Object3D[] {
   const scene = AFRAME.scenes[0]?.object3D;
   if (!scene) return [];
-  const suffixPattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`);
+  const stripExt = (s: string) => s.replace(/\.(glb|gltf|fbx|obj)$/i, "");
+  const cleanName = stripExt(name);
+  const suffixPattern = new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_\\d+$`);
   const results: Object3D[] = [];
   scene.traverse((child: Object3D) => {
-    if (child.name === name || suffixPattern.test(child.name)) {
+    if (!child.name) return;
+    const childName = stripExt(child.name);
+    if (childName === cleanName || suffixPattern.test(childName)) {
       results.push(child);
     }
   });
   return results;
 }
 
-// Parse the suffix after _interactive_animation to extract mode and optional target name
-function parseSuffix(suffix: string): { mode: TriggerMode; target: string | null } {
-  if (!suffix) return { mode: TriggerMode.Desktop, target: null };
+// Parse the suffix after _interactive_animation to extract mode, optional target,
+// optional trailing _loop flag, and optional _clip_<name> selector.
+function parseSuffix(suffix: string): {
+  mode: TriggerMode;
+  target: string | null;
+  loop: boolean;
+  clip: string | null;
+} {
+  let s = suffix;
+  let loop = false;
+  let clip: string | null = null;
 
-  if (suffix === "hand") return { mode: TriggerMode.Hand, target: null };
-  if (suffix === "both") return { mode: TriggerMode.Both, target: null };
-  if (suffix.startsWith("hand_")) return { mode: TriggerMode.Hand, target: suffix.substring(5) };
-  if (suffix.startsWith("both_")) return { mode: TriggerMode.Both, target: suffix.substring(5) };
+  if (s === "loop") {
+    loop = true;
+    s = "";
+  } else if (s.endsWith("_loop")) {
+    loop = true;
+    s = s.substring(0, s.length - 5);
+  }
+
+  // Extract _clip_<name> (or leading clip_<name>) from the trailing portion.
+  // Limitation: a target literally containing "_clip_" can't be expressed.
+  const clipMatch = s.match(/(?:^|_)clip_(.+)$/);
+  if (clipMatch) {
+    clip = clipMatch[1];
+    s = s.substring(0, clipMatch.index);
+  }
+
+  if (!s) return { mode: TriggerMode.Desktop, target: null, loop, clip };
+
+  if (s === "hand") return { mode: TriggerMode.Hand, target: null, loop, clip };
+  if (s === "both") return { mode: TriggerMode.Both, target: null, loop, clip };
+  if (s.startsWith("hand_")) return { mode: TriggerMode.Hand, target: s.substring(5), loop, clip };
+  if (s.startsWith("both_")) return { mode: TriggerMode.Both, target: s.substring(5), loop, clip };
 
   // No mode prefix — entire suffix is the target name, desktop mode
-  return { mode: TriggerMode.Desktop, target: suffix };
+  return { mode: TriggerMode.Desktop, target: s, loop, clip };
 }
 
 // Compute world-space AABB for an object
@@ -157,19 +215,29 @@ function getControllers(): { left: Object3D | null; right: Object3D | null } {
   return { left: leftController, right: rightController };
 }
 
-function playClips(mixer: AnimationMixer, root: Object3D, uuids: Set<string>) {
-  const clips = root.animations.filter(clip =>
+function playClips(
+  mixer: AnimationMixer,
+  root: Object3D,
+  uuids: Set<string>,
+  loop = false,
+  selectClip: string | null = null
+): number {
+  let clips = root.animations.filter(clip =>
     clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
   );
+  if (selectClip) clips = clips.filter(c => c.name === selectClip);
 
   mixer.stopAllAction();
+  let maxDuration = 0;
   for (const clip of clips) {
     const action = mixer.clipAction(clip);
     action.reset();
-    action.setLoop(LoopOnce, 1);
+    action.setLoop(loop ? LoopRepeat : LoopOnce, loop ? Infinity : 1);
     action.clampWhenFinished = false;
     action.play();
+    if (clip.duration > maxDuration) maxDuration = clip.duration;
   }
+  return maxDuration;
 }
 
 function playAnimations(eid: number) {
@@ -178,7 +246,21 @@ function playAnimations(eid: number) {
   const uuids = triggerUUIDs.get(eid);
   if (!root || !mixer || !uuids) return;
 
-  playClips(mixer, root, uuids);
+  const cName = clipName.get(eid) ?? null;
+
+  // Looping triggers toggle: a click while playing stops the loop instead of restarting.
+  if (loopMode.get(eid)) {
+    if (loopPlaying.get(eid)) {
+      mixer.stopAllAction();
+      loopPlaying.set(eid, false);
+      return;
+    }
+    loopPlaying.set(eid, true);
+    playClips(mixer, root, uuids, true, cName);
+    return;
+  }
+
+  playClips(mixer, root, uuids, false, cName);
 
   // Also play linked target animations if configured
   playTargetAnimations(eid);
@@ -187,6 +269,16 @@ function playAnimations(eid: number) {
 function playTargetAnimations(eid: number) {
   const tName = targetName.get(eid);
   if (!tName) return;
+
+  const cName = clipName.get(eid) ?? null;
+  const now = (APP as any).world?.time?.elapsed ?? performance.now();
+
+  // Clip-specific triggers honour a per-target lock so a quiz answer can't be
+  // changed mid-animation. Non-clip triggers ignore the lock (legacy behaviour).
+  if (cName) {
+    const lockUntil = targetLockUntil.get(tName) ?? 0;
+    if (now < lockUntil) return;
+  }
 
   // Resolve targets lazily each time so late-arriving objects (e.g. uploads) are found
   const tObjects = findSceneObjectsByTargetName(tName);
@@ -218,8 +310,14 @@ function playTargetAnimations(eid: number) {
     targetRootsList.set(eid, rootList);
     targetUUIDsList.set(eid, uuidList);
 
+    let maxDuration = 0;
     for (let i = 0; i < mixerList.length; i++) {
-      playClips(mixerList[i], rootList[i], uuidList[i]);
+      const dur = playClips(mixerList[i], rootList[i], uuidList[i], false, cName);
+      if (dur > maxDuration) maxDuration = dur;
+    }
+
+    if (cName && maxDuration > 0) {
+      targetLockUntil.set(tName, now + maxDuration * 1000);
     }
   }
 }
@@ -271,18 +369,27 @@ export function animationPlaySystem(world: HubsWorld) {
     if (suffixStart < objName.length && objName[suffixStart] === "_") {
       suffix = objName.substring(suffixStart + 1);
     }
-    const { mode, target } = parseSuffix(suffix);
+    const { mode, target, loop, clip } = parseSuffix(suffix);
 
     addComponent(world, AnimationOnClick, eid);
     addComponent(world, NetworkedAnimationOnClick, eid);
     addComponent(world, SingleActionButton, eid);
     nameToEid.set(obj.name, eid);
     triggerMode.set(eid, mode);
+    // Loop only applies to direct animation; ignore the flag if a target was specified.
+    if (loop && !target) loopMode.set(eid, true);
+    if (clip) clipName.set(eid, clip);
 
     // Only add click/raycast components for desktop and both modes
     if (mode === TriggerMode.Desktop || mode === TriggerMode.Both) {
       addComponent(world, CursorRaycastable, eid);
       addComponent(world, RemoteHoverTarget, eid);
+      // Make the trigger holdable so the cursor can grab it. A short release fires
+      // the animation; a longer hold + cursor motion is treated as a drag instead.
+      // hold-system gates this on canMove(), so non-grabbable Spoke objects continue
+      // to fire via the existing Interacted path.
+      addComponent(world, Holdable, eid);
+      addComponent(world, OffersRemoteConstraint, eid);
     }
 
     if (target) {
@@ -336,6 +443,9 @@ export function animationPlaySystem(world: HubsWorld) {
     targetUUIDsList.delete(eid);
     handBounds.delete(eid);
     handInside.delete(eid);
+    loopMode.delete(eid);
+    loopPlaying.delete(eid);
+    clipName.delete(eid);
   });
 
   // Advance all active mixers (including linked targets)
@@ -345,13 +455,46 @@ export function animationPlaySystem(world: HubsWorld) {
     targetMixersList.get(eid)?.forEach(m => m.update(dt));
   });
 
-  // On click: increment counter locally and broadcast to other clients by name
-  // Only fires for Desktop and Both modes (Hand-only objects have no CursorRaycastable)
+  // On click: increment counter locally and broadcast to other clients by name.
+  // Fires for non-grabbable triggers (Spoke wall buttons etc.) where holdSystem
+  // never adds Held, so the cursor's hover stays and Interacted is dispatched normally.
   clickedQuery(world).forEach(eid => {
     NetworkedAnimationOnClick.playing[eid]++;
     const obj = world.eid2obj.get(eid);
     if (obj && typeof NAF !== "undefined" && localClientID) {
       NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
+    }
+  });
+
+  // Grabbable triggers (e.g. dragged-in models): record start time + position when held,
+  // then on release decide whether the gesture was a click (animate) or a drag (skip).
+  heldAnimEnterQuery(world).forEach(eid => {
+    const obj = world.eid2obj.get(eid);
+    if (!obj) return;
+    obj.getWorldPosition(tmpPos);
+    heldStartTime.set(eid, world.time.elapsed);
+    heldStartPos.set(eid, tmpPos.clone());
+  });
+
+  heldAnimExitQuery(world).forEach(eid => {
+    const startTime = heldStartTime.get(eid);
+    const startPos = heldStartPos.get(eid);
+    heldStartTime.delete(eid);
+    heldStartPos.delete(eid);
+    if (startTime === undefined || !startPos) return;
+
+    const obj = world.eid2obj.get(eid);
+    if (!obj) return;
+
+    obj.getWorldPosition(tmpPos);
+    const duration = world.time.elapsed - startTime;
+    const distance = startPos.distanceTo(tmpPos);
+
+    if (duration <= CLICK_DURATION_MS && distance <= CLICK_DISTANCE_M) {
+      NetworkedAnimationOnClick.playing[eid]++;
+      if (typeof NAF !== "undefined" && localClientID) {
+        NAF.connection.broadcastDataGuaranteed(NAF_DATA_TYPE, { name: obj.name });
+      }
     }
   });
 
