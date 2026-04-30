@@ -17,13 +17,24 @@ export enum OBJECT_SPAWNER_FLAGS {
 function* spawnObjectJob(world: HubsWorld, spawner: EntityID) {
   if (!APP.hubChannel!.can("spawn_and_move_media")) return;
 
+  // If the Spoke node is named "Spawner_<object_name>", spawned copies inherit
+  // <object_name>. This lets naming conventions like _interactive_animation flow
+  // through the spawner without re-authoring the underlying GLB.
+  const spawnerObj = world.eid2obj.get(spawner);
+  let displayName: string | undefined;
+  if (spawnerObj?.name?.startsWith("Spawner_")) {
+    const suffix = spawnerObj.name.substring("Spawner_".length);
+    if (suffix) displayName = suffix;
+  }
+
   const spawned = createNetworkedMedia(world, {
     src: APP.getString(ObjectSpawner.src[spawner])!,
     recenter: false,
     resize: false,
     animateLoad: false,
     isObjectMenuTarget: true,
-    moveParentNotObject: true
+    moveParentNotObject: true,
+    displayName
   });
 
   if (ObjectSpawner.flags[spawner] & OBJECT_SPAWNER_FLAGS.APPLY_GRAVITY) {
@@ -33,10 +44,9 @@ function* spawnObjectJob(world: HubsWorld, spawner: EntityID) {
   addComponent(world, HeldRemoteRight, spawned);
   addComponent(world, Held, spawned);
 
-  const spawnerObj = world.eid2obj.get(spawner)!;
-  spawnerObj.updateMatrices();
+  spawnerObj!.updateMatrices();
   const spawnedObj = world.eid2obj.get(spawned)!;
-  setMatrixWorld(spawnedObj, spawnerObj.matrixWorld);
+  setMatrixWorld(spawnedObj, spawnerObj!.matrixWorld);
 
   yield sleep(100);
   yield* animateScale(world, spawner);

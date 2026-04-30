@@ -251,12 +251,17 @@ function* loadByMediaType(
       );
       break;
     case MediaType.MODEL: {
-      const displayName = uploadDisplayNames.get(canonicalUrl) || uploadDisplayNames.get(accessibleUrl);
-      if (displayName) {
+      // Prefer the displayName persisted on the MediaLoader (survives pinning, page reloads,
+      // and is available to late-joining clients). Fall back to the local upload map for
+      // any path that hasn't yet stored it on the component.
+      const persistedName = MediaLoader.displayName[eid] ? APP.getString(MediaLoader.displayName[eid]) : null;
+      const displayName =
+        persistedName || uploadDisplayNames.get(canonicalUrl) || uploadDisplayNames.get(accessibleUrl);
+      if (!persistedName && displayName) {
         uploadDisplayNames.delete(canonicalUrl);
         uploadDisplayNames.delete(accessibleUrl);
       }
-      mediaEid = yield* loadModel(world, accessibleUrl, contentType, true, false, displayName);
+      mediaEid = yield* loadModel(world, accessibleUrl, contentType, true, false, displayName ?? undefined);
       break;
     }
     case MediaType.PDF:

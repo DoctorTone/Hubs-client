@@ -1,4 +1,4 @@
-import { addComponent, defineQuery, enterQuery, exitQuery } from "bitecs";
+import { addComponent, defineQuery, enterQuery, exitQuery, hasComponent } from "bitecs";
 import { AnimationMixer, Box3, LoopOnce, LoopRepeat, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
 import {
@@ -10,6 +10,7 @@ import {
   MixerAnimatableData,
   NetworkedAnimationOnClick,
   Object3DTag,
+  ObjectSpawner,
   OffersRemoteConstraint,
   RemoteHoverTarget,
   SingleActionButton
@@ -359,6 +360,9 @@ export function animationPlaySystem(world: HubsWorld) {
   newObjectQuery(world).forEach(eid => {
     const obj = world.eid2obj.get(eid);
     if (!obj) return;
+    // Spawners may be named "Spawner_<object_name>" so the spawned copies inherit
+    // <object_name>; the spawner itself must not become an animation trigger.
+    if (hasComponent(world, ObjectSpawner, eid)) return;
     // Strip common file extensions before checking for the animation tag
     const objName = obj.name.replace(/\.(glb|gltf|fbx|obj)$/i, "");
     if (!objName.includes(ANIMATION_NAME_TAG)) return;

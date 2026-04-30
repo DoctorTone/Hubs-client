@@ -168,10 +168,12 @@ export const MediaLoader = defineComponent({
   flags: Types.ui8,
   fileId: Types.ui32,
   count: Types.ui8,
-  mediaRef: Types.eid
+  mediaRef: Types.eid,
+  displayName: Types.ui32
 });
 MediaLoader.src[$isStringType] = true;
 MediaLoader.fileId[$isStringType] = true;
+MediaLoader.displayName[$isStringType] = true;
 export const MediaLoaderOffset = defineComponent();
 export const MediaLoaded = defineComponent();
 export const LoadedByMediaLoader = defineComponent();

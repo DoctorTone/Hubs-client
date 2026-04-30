@@ -11,12 +11,22 @@ export type MediaLoaderParams = {
   fileId?: string;
   isObjectMenuTarget: boolean;
   moveParentNotObject?: boolean;
+  displayName?: string;
 };
 
 export function inflateMediaLoader(
   world: HubsWorld,
   eid: number,
-  { src, recenter, resize, animateLoad, fileId, isObjectMenuTarget, moveParentNotObject }: MediaLoaderParams
+  {
+    src,
+    recenter,
+    resize,
+    animateLoad,
+    fileId,
+    isObjectMenuTarget,
+    moveParentNotObject,
+    displayName
+  }: MediaLoaderParams
 ) {
   addComponent(world, MediaLoader, eid);
   addComponent(world, MediaLoading, eid);
@@ -29,6 +39,9 @@ export function inflateMediaLoader(
   MediaLoader.flags[eid] = flags;
   if (fileId) {
     MediaLoader.fileId[eid] = APP.getSid(fileId)!;
+  }
+  if (displayName) {
+    MediaLoader.displayName[eid] = APP.getSid(displayName)!;
   }
   MediaLoader.src[eid] = APP.getSid(src)!;
   MediaLoader.count[eid] = 0;

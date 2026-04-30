@@ -54,7 +54,10 @@ export async function spawnFromFileList(files: FileList) {
           resize: !qsTruthy("noResize"),
           animateLoad: true,
           fileId: response.file_id,
-          isObjectMenuTarget: true
+          isObjectMenuTarget: true,
+          // Persist the original filename on the entity so triggers like
+          // _interactive_animation keep working after pinning + re-entry.
+          displayName: file.name
         };
       })
       .catch(e => {
