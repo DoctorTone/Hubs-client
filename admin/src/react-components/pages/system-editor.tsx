@@ -150,7 +150,7 @@ const SystemEditorComponent = ({ classes }) => {
 
           <CardSection
             ctaCallback={() => {
-              window.open("https://docs.hubsfoundation.org/hubs-cloud-limiting-user-access.html");
+              window.open("https://docs.hubsfoundation.org/admin-limiting-user-access");
             }}
             cta="Limit access guide"
             body="Learn how to control who can enter your hub’s rooms."

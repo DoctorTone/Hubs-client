@@ -1,8 +1,8 @@
 name: hc-pkg
 on:
   workflow_dispatch:
-   
-    
+
+
 jobs:
   hcpkgrelease:
     uses: Hubs-Foundation/hubs-ops/.github/workflows/HcPkgPreReleaseGitops.yaml@master
