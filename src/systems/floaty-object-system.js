@@ -146,6 +146,10 @@ export const floatyObjectSystem = world => {
         collisionFilterMask: COLLISION_LAYERS.DEFAULT_INTERACTABLE,
         gravity: { x: 0, y: -9.8, z: 0 }
       });
+      // Wake the body — after settling on the floor following a drop, it auto-sleeps
+      // and a low-velocity cursor release isn't enough to reactivate it, so gravity
+      // wouldn't apply and the object would float in place.
+      physicsSystem.activateBody(bodyId);
     }
   });
 
