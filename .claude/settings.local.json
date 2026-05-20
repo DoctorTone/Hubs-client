@@ -11,7 +11,8 @@
       "Bash(grep:*)",
       "Bash(npx tsc:*)",
       "Bash(find /c/Users/tony/Documents/Github/hubs-old -path */test* -o -path */example* -o -path */spec*)",
-      "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && grep -A5 -B5 \"media-video\\\\|videoPaused\\\\|togglePlaying\" {} | head -30')"
+      "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && grep -A5 -B5 \"media-video\\\\|videoPaused\\\\|togglePlaying\" {} | head -30')",
+      "Bash(git fetch *)"
     ]
   }
 }

@@ -105,7 +105,7 @@ const updateRigidBody = (eid: number, params: RigidBodyParams) => {
   params.scaleAutoUpdate && (Rigidbody.flags[eid] |= RIGID_BODY_FLAGS.SCALE_AUTO_UPDATE);
 };
 
-export const updateRigiBodyParams = (eid: number, params: Partial<RigidBodyParams>) => {
+export const updateBodyParams = (eid: number, params: Partial<RigidBodyParams>) => {
   const currentParams = getBodyFromRigidBody(eid);
   const bodyParams = Object.assign({}, currentParams, params);
   updateRigidBody(eid, bodyParams);
