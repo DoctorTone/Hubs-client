@@ -142,7 +142,9 @@ export const floatyObjectSystem = world => {
         removeComponent(world, MakeStaticWhenAtRest, eid);
       }
     } else {
+      // Ensure the physics type is dynamic, otherwise the object won't be affected by physics and drop
       physicsSystem.updateRigidBodyOptions(eid, {
+        type: "dynamic",
         collisionFilterMask: COLLISION_LAYERS.DEFAULT_INTERACTABLE,
         gravity: { x: 0, y: -9.8, z: 0 }
       });
