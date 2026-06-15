@@ -21,8 +21,6 @@ export interface SpawnerParams {
 }
 
 export function inflateSpawner(world: HubsWorld, eid: number, props: SpawnerParams) {
-  // DEBUG
-  console.log("About to inflate spawner");
   inflateMediaLoader(world, eid, {
     src: props.src,
     resize: false,

@@ -1,5 +1,5 @@
 import { addComponent, defineQuery, enterQuery, exitQuery, hasComponent, removeComponent } from "bitecs";
-import { AnimationMixer, Box3, LoopOnce, LoopRepeat, Object3D, Vector3 } from "three";
+import { AnimationAction, AnimationClip, AnimationMixer, Box3, LoopOnce, LoopRepeat, Object3D, Vector3 } from "three";
 import { HubsWorld } from "../app";
 import {
   AnimationOnClick,
@@ -8,7 +8,9 @@ import {
   Holdable,
   Interacted,
   LoopAnimation,
+  LoopAnimationData,
   LoopAnimationInitialize,
+  LoopAnimationInitializeData,
   MixerAnimatableData,
   NetworkedAnimationOnClick,
   Object3DTag,
@@ -18,6 +20,7 @@ import {
   SingleActionButton
 } from "../bit-components";
 import { localClientID } from "../bit-systems/networking";
+import { getActiveClips } from "../bit-systems/loop-animation";
 
 const ANIMATION_NAME_TAG = "_interactive_animation";
 const NAF_DATA_TYPE = "animation-play";
@@ -128,6 +131,21 @@ function stopClipsForEntity(
   const myClips = ctx.root.animations.filter(clip =>
     clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
   );
+  // [anim-debug] For each clip we're about to stop, show how many of its tracks actually
+  // belong to THIS entity vs the total, plus the names of the OTHER objects the clip animates.
+  // If a clip stopped for a trigger also drives "spaceships", that's the shared-clip over-match.
+  const uuidToName = new Map<string, string>();
+  ctx.root.traverse(child => uuidToName.set(child.uuid, child.name || "<unnamed>"));
+  for (const clip of myClips) {
+    const trackUuids = clip.tracks.map(t => t.name.split(".")[0]);
+    const mine = trackUuids.filter(u => uuids.has(u));
+    const otherNames = [...new Set(trackUuids.filter(u => !uuids.has(u)).map(u => uuidToName.get(u) ?? u))];
+    console.warn(
+      `[anim-debug] stopClipsForEntity obj="${obj.name}" root="${ctx.root.name}"` +
+        ` STOPPING clip="${clip.name}" — ${mine.length}/${clip.tracks.length} tracks are this entity's;` +
+        ` clip ALSO animates: [${otherNames.join(", ")}]`
+    );
+  }
   const bitecsMixer = ctx.root.eid !== undefined ? MixerAnimatableData.get(ctx.root.eid) : null;
   for (const clip of myClips) {
     if (bitecsMixer) {
@@ -149,24 +167,87 @@ function targetNameMatches(objName: string, tName: string): boolean {
   return suffixPattern.test(cleanName);
 }
 
-// Walk up from `obj` and remove LoopAnimation (or its Initialize variant) from the first
-// ancestor entity that carries it. Removing LoopAnimation triggers loopAnimationSystem's
-// exit query, which stops the cached actions properly — avoiding the clipAction(clip, obj)
-// vs clipAction(clip, root) action-mismatch that plagues direct mixer.stop() calls here.
+// Collect the UUIDs of an object and all of its descendants, used to decide which
+// animation clips actually drive a given target object.
+function collectSubtreeUuids(obj: Object3D): Set<string> {
+  const uuids = new Set<string>();
+  obj.traverse(child => uuids.add(child.uuid));
+  return uuids;
+}
+
+function clipAnimatesTarget(clip: AnimationClip | undefined, targetUuids: Set<string>): boolean {
+  return !!clip && clip.tracks.some(track => targetUuids.has(track.name.split(".")[0]));
+}
+
+// Walk up from `obj` and stop auto-looping ONLY for the clips that actually animate this
+// target's subtree, leaving any sibling loops on the same component intact.
+//
+// inflateModel aggregates every loop-animation in a GLB into a single LoopAnimation on the
+// model root, so an indirect-animation target (e.g. "walker") and a genuine auto-loop object
+// (e.g. spaceships/"RotatorAction") share one component. Removing the whole component — as we
+// used to — killed the unrelated auto-loop too. Targets are always trigger-driven, so here we
+// surgically drop just the target's clips and keep the rest playing.
 function suppressLoopAnimationOnTarget(world: HubsWorld, obj: Object3D) {
+  const targetUuids = collectSubtreeUuids(obj);
+
   let current: Object3D | null = obj;
   while (current) {
     const eid = (current as any).eid as number | undefined;
-    if (eid !== undefined) {
-      if (hasComponent(world, LoopAnimationInitialize, eid)) {
-        removeComponent(world, LoopAnimationInitialize, eid);
-        return;
+    const animations = (current.animations as AnimationClip[] | undefined) ?? [];
+
+    if (eid !== undefined && hasComponent(world, LoopAnimationInitialize, eid)) {
+      // Not yet initialized — drop the params whose clips target this object before the
+      // loop system turns them into actions.
+      const params = LoopAnimationInitializeData.get(eid) ?? [];
+      const kept = params.filter(
+        (p: any) =>
+          !getActiveClips(animations, p.activeClipIndices, APP.getString(p.clip) ?? "").some(c =>
+            clipAnimatesTarget(c, targetUuids)
+          )
+      );
+      if (kept.length !== params.length) {
+        console.warn(
+          `[anim-debug] suppressLoopAnimationOnTarget eid=${eid} name="${current.name}"` +
+            ` (matched object="${obj.name}") dropped ${params.length - kept.length}/${params.length}` +
+            ` init param(s); ${kept.length} kept`
+        );
+        if (kept.length === 0) {
+          removeComponent(world, LoopAnimationInitialize, eid);
+          LoopAnimationInitializeData.delete(eid);
+        } else {
+          LoopAnimationInitializeData.set(eid, kept);
+        }
       }
-      if (hasComponent(world, LoopAnimation, eid)) {
-        removeComponent(world, LoopAnimation, eid);
-        return;
-      }
+      return;
     }
+
+    if (eid !== undefined && hasComponent(world, LoopAnimation, eid)) {
+      // Already playing — stop and drop only this target's actions; keep the others looping.
+      const actions = (LoopAnimationData.get(eid) as AnimationAction[] | undefined) ?? [];
+      const kept: AnimationAction[] = [];
+      let stopped = 0;
+      for (const action of actions) {
+        if (clipAnimatesTarget(action.getClip(), targetUuids)) {
+          action.stop();
+          stopped++;
+        } else {
+          kept.push(action);
+        }
+      }
+      if (stopped > 0) {
+        console.warn(
+          `[anim-debug] suppressLoopAnimationOnTarget eid=${eid} name="${current.name}"` +
+            ` (matched object="${obj.name}") stopped ${stopped}/${actions.length} action(s); ${kept.length} kept`
+        );
+        if (kept.length === 0) {
+          removeComponent(world, LoopAnimation, eid);
+        } else {
+          LoopAnimationData.set(eid, kept);
+        }
+      }
+      return;
+    }
+
     current = current.parent;
   }
 }
@@ -287,16 +368,26 @@ function playAnimations(eid: number) {
   if (!root || !mixer || !uuids) return;
 
   const cName = clipName.get(eid) ?? null;
+  const tName = targetName.get(eid);
+
+  // A clip-specific trigger always plays once, so it never enters the loop branch.
+  const isLoop = (loopMode.get(eid) ?? false) && !cName;
 
   // Looping triggers toggle: a click while playing stops the loop instead of restarting.
-  if (loopMode.get(eid)) {
+  if (isLoop) {
     if (loopPlaying.get(eid)) {
       mixer.stopAllAction();
+      targetMixersList.get(eid)?.forEach(m => m.stopAllAction());
       loopPlaying.set(eid, false);
       return;
     }
     loopPlaying.set(eid, true);
-    playClips(mixer, root, uuids, true, cName);
+    // Loop the target animation(s) when a target is set; otherwise loop the source.
+    if (tName) {
+      playTargetAnimations(eid, true);
+    } else {
+      playClips(mixer, root, uuids, true, cName);
+    }
     return;
   }
 
@@ -304,10 +395,10 @@ function playAnimations(eid: number) {
   playClips(mixer, root, uuids, false, null);
 
   // Also play linked target animations if configured
-  playTargetAnimations(eid);
+  playTargetAnimations(eid, false);
 }
 
-function playTargetAnimations(eid: number) {
+function playTargetAnimations(eid: number, loop = false) {
   const tName = targetName.get(eid);
   if (!tName) return;
 
@@ -353,7 +444,7 @@ function playTargetAnimations(eid: number) {
 
     let maxDuration = 0;
     for (let i = 0; i < mixerList.length; i++) {
-      const dur = playClips(mixerList[i], rootList[i], uuidList[i], false, cName);
+      const dur = playClips(mixerList[i], rootList[i], uuidList[i], loop, cName);
       if (dur > maxDuration) maxDuration = dur;
     }
 
@@ -411,6 +502,9 @@ export function animationPlaySystem(world: HubsWorld) {
     if (objName) {
       for (const tName of registeredTargets) {
         if (targetNameMatches(objName, tName)) {
+          console.warn(
+            `[anim-debug] newObject "${objName}" matched registered target "${tName}" -> suppressing`
+          );
           suppressLoopAnimationOnTarget(world, obj);
           break;
         }
@@ -432,8 +526,10 @@ export function animationPlaySystem(world: HubsWorld) {
     addComponent(world, SingleActionButton, eid);
     nameToEid.set(obj.name, eid);
     triggerMode.set(eid, mode);
-    // Loop only applies to direct animation; ignore the flag if a target was specified.
-    if (loop && !target) loopMode.set(eid, true);
+    // Loop applies to direct animation and to linked-target animation. A clip-specific
+    // trigger always plays once (the loop flag is ignored), so the toggle in playAnimations
+    // gates loopMode on the absence of a clip name rather than excluding it here.
+    if (loop) loopMode.set(eid, true);
     if (clip) clipName.set(eid, clip);
 
     // Only add click/raycast components for desktop and both modes

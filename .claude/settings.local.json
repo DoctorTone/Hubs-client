@@ -13,7 +13,12 @@
       "Bash(find /c/Users/tony/Documents/Github/hubs-old -path */test* -o -path */example* -o -path */spec*)",
       "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && grep -A5 -B5 \"media-video\\\\|videoPaused\\\\|togglePlaying\" {} | head -30')",
       "Bash(git fetch *)",
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "Bash(git --no-pager diff --stat)",
+      "Bash(git --no-pager diff src/bit-systems/object-spawner.ts)",
+      "Bash(git --no-pager diff src/bit-systems/object-menu.ts src/inflators/spawner.ts)",
+      "Bash(git --no-pager diff --stat src/bit-systems/media-loading.ts src/bit-systems/object-menu.ts)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }

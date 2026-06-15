@@ -82,6 +82,12 @@ function stopClipsForEntity(
   const myClips = ctx.root.animations.filter(clip =>
     clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
   );
+  // [anim-debug] Same scoping check as animationPlay — flag if an unrelated object's clips
+  // get swept in by a proximity trigger.
+  console.warn(
+    `[anim-debug] (proximity) stopClipsForEntity obj="${obj.name}" root="${ctx.root.name}"` +
+      ` rootEid=${(ctx.root as any).eid} stopping clips=[${myClips.map(c => c.name).join(", ")}]`
+  );
   const bitecsMixer = ctx.root.eid !== undefined ? MixerAnimatableData.get(ctx.root.eid) : null;
   for (const clip of myClips) {
     if (bitecsMixer) {
