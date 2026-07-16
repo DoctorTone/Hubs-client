@@ -131,21 +131,6 @@ function stopClipsForEntity(
   const myClips = ctx.root.animations.filter(clip =>
     clip.tracks.some(track => uuids.has(track.name.split(".")[0]))
   );
-  // [anim-debug] For each clip we're about to stop, show how many of its tracks actually
-  // belong to THIS entity vs the total, plus the names of the OTHER objects the clip animates.
-  // If a clip stopped for a trigger also drives "spaceships", that's the shared-clip over-match.
-  const uuidToName = new Map<string, string>();
-  ctx.root.traverse(child => uuidToName.set(child.uuid, child.name || "<unnamed>"));
-  for (const clip of myClips) {
-    const trackUuids = clip.tracks.map(t => t.name.split(".")[0]);
-    const mine = trackUuids.filter(u => uuids.has(u));
-    const otherNames = [...new Set(trackUuids.filter(u => !uuids.has(u)).map(u => uuidToName.get(u) ?? u))];
-    console.warn(
-      `[anim-debug] stopClipsForEntity obj="${obj.name}" root="${ctx.root.name}"` +
-        ` STOPPING clip="${clip.name}" — ${mine.length}/${clip.tracks.length} tracks are this entity's;` +
-        ` clip ALSO animates: [${otherNames.join(", ")}]`
-    );
-  }
   const bitecsMixer = ctx.root.eid !== undefined ? MixerAnimatableData.get(ctx.root.eid) : null;
   for (const clip of myClips) {
     if (bitecsMixer) {
@@ -206,11 +191,6 @@ function suppressLoopAnimationOnTarget(world: HubsWorld, obj: Object3D) {
           )
       );
       if (kept.length !== params.length) {
-        console.warn(
-          `[anim-debug] suppressLoopAnimationOnTarget eid=${eid} name="${current.name}"` +
-            ` (matched object="${obj.name}") dropped ${params.length - kept.length}/${params.length}` +
-            ` init param(s); ${kept.length} kept`
-        );
         if (kept.length === 0) {
           removeComponent(world, LoopAnimationInitialize, eid);
           LoopAnimationInitializeData.delete(eid);
@@ -235,10 +215,6 @@ function suppressLoopAnimationOnTarget(world: HubsWorld, obj: Object3D) {
         }
       }
       if (stopped > 0) {
-        console.warn(
-          `[anim-debug] suppressLoopAnimationOnTarget eid=${eid} name="${current.name}"` +
-            ` (matched object="${obj.name}") stopped ${stopped}/${actions.length} action(s); ${kept.length} kept`
-        );
         if (kept.length === 0) {
           removeComponent(world, LoopAnimation, eid);
         } else {
@@ -502,9 +478,6 @@ export function animationPlaySystem(world: HubsWorld) {
     if (objName) {
       for (const tName of registeredTargets) {
         if (targetNameMatches(objName, tName)) {
-          console.warn(
-            `[anim-debug] newObject "${objName}" matched registered target "${tName}" -> suppressing`
-          );
           suppressLoopAnimationOnTarget(world, obj);
           break;
         }

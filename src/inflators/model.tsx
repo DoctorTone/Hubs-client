@@ -134,10 +134,8 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model, autoPla
   // Collect the subtrees of any trigger-named objects so their loop-animation clips can be
   // excluded from auto-play below — the interactive/proximity systems drive those instead.
   const triggerNamedUuids = new Set<string>();
-  const dbgTriggerNames: string[] = [];
   model.traverse(obj => {
     if (isTriggerName(obj.name)) {
-      dbgTriggerNames.push(obj.name);
       obj.traverse(child => triggerNamedUuids.add(child.uuid));
     }
   });
@@ -162,10 +160,6 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model, autoPla
     // Skip loop-animation on trigger-named objects so they don't auto-loop on load.
     if (components["loop-animation"]) {
       const excluded = triggerNamedUuids.has(obj.uuid);
-      console.warn(
-        `[anim-debug] (model) "${model.name}" loop-animation on "${obj.name}" excluded=${excluded}`,
-        components["loop-animation"]
-      );
       if (!excluded) loopAnimationParams.push(components["loop-animation"]);
     }
 
@@ -195,12 +189,6 @@ export function inflateModel(world: HubsWorld, rootEid: number, { model, autoPla
     // could belong to a trigger. Models without triggers keep the original behaviour
     // (including the clip-0 default when no loop-animation components are present).
     const willAutoPlay = autoPlayAnimations && (!modelHasTriggers || loopAnimationParams.length > 0);
-    console.warn(
-      `[anim-debug] (model) "${model.name}" animations=${model.animations.length}` +
-        ` hasTriggers=${modelHasTriggers} triggers=[${dbgTriggerNames.join(", ")}]` +
-        ` loopParams=${loopAnimationParams.length} autoPlayArg=${autoPlayAnimations} -> willAutoPlay=${willAutoPlay}` +
-        ` (clip names: [${model.animations.map(a => a.name).join(", ")}])`
-    );
     if (willAutoPlay) {
       inflateLoopAnimationInitialize(world, rootEid, loopAnimationParams);
     }

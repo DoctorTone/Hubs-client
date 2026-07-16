@@ -74,12 +74,6 @@ AFRAME.registerComponent("loop-animation", {
 
     this.currentActions.length = 0;
 
-    // [anim-debug] AFRAME loop-animation playing clips for an environment/scene object.
-    console.warn(
-      `[anim-debug] (aframe) loop-animation PLAY on "${this.el.object3D?.name || this.el.className || this.el.id}"` +
-        ` clips=[${clips.map(c => c?.name).join(", ")}] (mixer root="${mixer.getRoot()?.name}")`
-    );
-
     for (let i = 0; i < clips.length; i++) {
       const action = mixer.clipAction(clips[i], this.el.object3D);
       action.enabled = true;
@@ -91,12 +85,6 @@ AFRAME.registerComponent("loop-animation", {
   },
 
   destroy() {
-    // [anim-debug] AFRAME loop-animation being torn down — its clips get stopped here.
-    console.warn(
-      `[anim-debug] (aframe) loop-animation DESTROY on "${this.el.object3D?.name || this.el.className || this.el.id}"` +
-        ` stopping ${this.currentActions.length} action(s)`,
-      new Error("stack").stack
-    );
     for (let i = 0; i < this.currentActions.length; i++) {
       this.currentActions[i].enabled = false;
       this.currentActions[i].stop();

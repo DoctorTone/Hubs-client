@@ -90,14 +90,6 @@ export function loopAnimationSystem(world: HubsWorld): void {
   });
 
   loopAnimationExitQuery(world).forEach((eid: number): void => {
-    // [anim-debug] Log every LoopAnimation removal so we can see if an auto-animate
-    // object (e.g. spaceships.glb) is having its loop stopped, and from where.
-    const dbgObj = world.eid2obj.get(eid);
-    console.warn(
-      `[anim-debug] LoopAnimation REMOVED from eid=${eid} name="${dbgObj?.name ?? "<no obj>"}"`,
-      new Error("stack").stack
-    );
-
     const mixer = hasComponent(world, MixerAnimatable, eid) ? MixerAnimatableData.get(eid)! : null;
     const activeAnimations = LoopAnimationData.get(eid)!;
     for (let i = 0; i < activeAnimations.length; i++) {
