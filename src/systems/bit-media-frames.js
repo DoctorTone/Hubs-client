@@ -93,6 +93,13 @@ function inOtherFrame(world, ignoredFrame, eid) {
   return false;
 }
 
+// True when the content bounds collapse on every axis (an empty/unmeasured box).
+// Such bounds would make scaleForAspectFit return Infinity, so we don't capture them.
+function isDegenerateBounds(bounds) {
+  const EPS = 1e-6;
+  return Math.abs(bounds[0]) < EPS && Math.abs(bounds[1]) < EPS && Math.abs(bounds[2]) < EPS;
+}
+
 function getCapturableEntity(world, physicsSystem, frame) {
   const collisions = physicsSystem.getCollisions(Rigidbody.bodyId[frame]);
   const frameObj = world.eid2obj.get(frame);
@@ -129,13 +136,6 @@ function isEntityColliding(physicsSystem, eidA, eidB) {
 
 function scaleForAspectFit(containerSize, itemSize) {
   return Math.min(containerSize[0] / itemSize[0], containerSize[1] / itemSize[1], containerSize[2] / itemSize[2]);
-}
-
-// True when the content bounds collapse on every axis (an empty/unmeasured box).
-// Such bounds would make scaleForAspectFit return Infinity, so we don't capture them.
-function isDegenerateBounds(bounds) {
-  const EPS = 1e-6;
-  return Math.abs(bounds[0]) < EPS && Math.abs(bounds[1]) < EPS && Math.abs(bounds[2]) < EPS;
 }
 
 const snapToFrame = (() => {

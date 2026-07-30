@@ -104,7 +104,7 @@ export function constraintsSystem(world, physicsSystem) {
   remove(
     world,
     OffersHandConstraint,
-    ConstraintHandRight,
+    ConstraintHandLeft,
     physicsSystem,
     anyEntityWith(world, HandLeft),
     queryExitHandLeft(world)
