@@ -410,7 +410,14 @@ AFRAME.GLTFModelPlus.registerComponent("heightfield", "heightfield", (el, compon
 AFRAME.GLTFModelPlus.registerComponent("trimesh", "trimesh", el => {
   el.setAttribute("shape-helper__trimesh", {
     type: SHAPE.MESH,
-    margin: 0.01,
+    // Spoke surfaces come in as triangle meshes, which have no thickness — once a body ends up
+    // on the far side of a triangle in a single step, nothing pushes it back and it falls
+    // forever. The margin is the only tolerance, and at a 1/60s step the old 0.01 was exceeded
+    // by anything moving faster than ~0.6 m/s. That is below a gentle VR hand release (~0.6
+    // measured) and well below a throw (~1.6), which is why objects fall through the floor in
+    // VR far more than on desktop, where a drop starts from rest. 0.05 puts the threshold at
+    // ~3 m/s, above the hardest measured throw. Cost: bodies rest ~5cm above the visual surface.
+    margin: 0.05,
     fit: FIT.ALL,
     includeInvisible: true
   });

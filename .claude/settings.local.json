@@ -19,7 +19,11 @@
       "Bash(git --no-pager diff src/bit-systems/object-menu.ts src/inflators/spawner.ts)",
       "Bash(git --no-pager diff --stat src/bit-systems/media-loading.ts src/bit-systems/object-menu.ts)",
       "mcp__ide__getDiagnostics",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(git --no-pager diff)",
+      "Bash(git *)",
+      "Bash(echo \"=== TSC done \\(exit $?\\) ===\")",
+      "Bash(echo \"=== tsc exit: $? ===\")"
     ]
   }
 }
