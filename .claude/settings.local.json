@@ -23,7 +23,9 @@
       "Bash(git --no-pager diff)",
       "Bash(git *)",
       "Bash(echo \"=== TSC done \\(exit $?\\) ===\")",
-      "Bash(echo \"=== tsc exit: $? ===\")"
+      "Bash(echo \"=== tsc exit: $? ===\")",
+      "PowerShell(npm run *)",
+      "Bash(npm run *)"
     ]
   }
 }
