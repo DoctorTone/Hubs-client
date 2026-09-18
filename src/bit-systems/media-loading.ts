@@ -302,8 +302,12 @@ function* loadByMediaType(
       throw new UnsupportedMediaTypeError(eid, mediaType);
   }
 
-  if (hasComponent(world, MediaLink, eid)) {
-    inflateLink(world, mediaEid, { href: APP.getString(MediaLink.src[eid])!, type: LinkType.LINK });
+  // MediaLink can be present without a src, since nothing guarantees the inflator set one. A Link
+  // with no url still renders an "open link" hover menu but does nothing when clicked, so only
+  // inflate it when there is a real url to open.
+  const mediaLinkSrc = hasComponent(world, MediaLink, eid) ? APP.getString(MediaLink.src[eid]) : null;
+  if (mediaLinkSrc) {
+    inflateLink(world, mediaEid, { href: mediaLinkSrc, type: LinkType.LINK });
     inflateGrabbable(world, mediaEid, { cursor: true, hand: false });
   }
 

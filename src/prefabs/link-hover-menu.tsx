@@ -32,7 +32,11 @@ export function LinkHoverMenuPrefab() {
   return (
     <entity
       name="Link Hover Menu"
-      objectMenuTransform
+      // Scale with the link, the way the legacy hover menu did by being a child of the link object.
+      // Without this the tab is pinned to world scale 1 and looks tiny on a scaled-up scene link.
+      // Note: only takes effect for flat targets (images, HTML link previews); the non-flat branch of
+      // objectMenuTransformSystem still hardcodes unit scale.
+      objectMenuTransform={{ scale: true }}
       linkHoverMenu={{
         linkButtonRef: buttonRef
       }}

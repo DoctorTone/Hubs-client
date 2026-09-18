@@ -1,6 +1,5 @@
-import { addComponent } from "bitecs";
 import { HubsWorld } from "../app";
-import { MediaImageLoaderData, MediaLink } from "../bit-components";
+import { MediaImageLoaderData } from "../bit-components";
 import { AlphaModeName, getAlphaModeFromAlphaModeName } from "../utils/create-image-mesh";
 import { ProjectionModeName, getProjectionFromProjectionName } from "../utils/projection-mode";
 import { inflateMediaLoader } from "./media-loader";
@@ -10,6 +9,11 @@ export interface ImageLoaderParams {
   projection: ProjectionModeName;
   alphaMode: AlphaModeName;
   alphaCutoff: number;
+  // Part of the glTF schema, but deliberately unused here: "controls" means media controls, not
+  // "this image has a link". Adding a MediaLink for it gave every Spoke image a src-less Link,
+  // which showed a dead "open link" hover menu and made the image cursor-grabbable. Images with a
+  // real Spoke link component still get MediaLink via the ext.link -> media-link mapping in
+  // gltf-model-plus, which actually sets the src.
   controls: boolean;
 }
 
@@ -38,8 +42,4 @@ export function inflateImageLoader(world: HubsWorld, eid: number, params: ImageL
     alphaMode: getAlphaModeFromAlphaModeName(requiredParams.alphaMode),
     projection: getProjectionFromProjectionName(requiredParams.projection)
   });
-
-  if (params.controls) {
-    addComponent(world, MediaLink, eid);
-  }
 }
