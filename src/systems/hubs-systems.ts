@@ -98,6 +98,7 @@ import { animationPlaySystem } from "./animationPlay";
 import { proximityAnimationPlaySystem } from "./proximityAnimationPlay";
 import { proximityVideoPlaySystem } from "./proximityVideoPlay";
 import { proximityAudioPlaySystem } from "./proximityAudioPlay";
+import { shouldUseNewLoader } from "../utils/bit-utils";
 
 declare global {
   interface Window {
@@ -320,10 +321,13 @@ export function mainTick(xrFrame: XRFrame, renderer: WebGLRenderer, scene: Scene
   entityPersistenceSystem(world, APP.hubChannel!);
   networkSendSystem(world);
 
-  animationPlaySystem(world);
-  proximityAnimationPlaySystem(world);
-  proximityVideoPlaySystem(world);
-  proximityAudioPlaySystem(world);
+  // Interactive animation/proximity behaviours are only available with the bitECS client
+  if (shouldUseNewLoader()) {
+    animationPlaySystem(world);
+    proximityAnimationPlaySystem(world);
+    proximityVideoPlaySystem(world);
+    proximityAudioPlaySystem(world);
+  }
 
   if (enableNetworkDebug) {
     networkDebugSystem(world, scene);
